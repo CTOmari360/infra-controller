@@ -23,8 +23,23 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
 dependencies = [
+<<<<<<< HEAD
  "crypto-common",
  "generic-array",
+=======
+ "crypto-common 0.1.7",
+ "generic-array 0.14.7",
+]
+
+[[package]]
+name = "aead"
+version = "0.6.0-rc.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b657e772794c6b04730ea897b66a058ccd866c16d1967da05eeeecec39043fe"
+dependencies = [
+ "crypto-common 0.2.1",
+ "inout 0.2.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -35,7 +50,22 @@ checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
  "cipher 0.4.4",
+<<<<<<< HEAD
  "cpufeatures",
+=======
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
+name = "aes"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66bd29a732b644c0431c6140f370d097879203d79b80c94a6747ba0872adaef8"
+dependencies = [
+ "cipher 0.5.1",
+ "cpubits",
+ "cpufeatures 0.3.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -47,8 +77,27 @@ dependencies = [
  "aead",
  "aes",
  "cipher 0.4.4",
+<<<<<<< HEAD
  "ctr",
  "ghash",
+=======
+ "ctr 0.9.2",
+ "ghash 0.5.1",
+ "subtle",
+]
+
+[[package]]
+name = "aes-gcm"
+version = "0.11.0-rc.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e22c0c90bbe8d4f77c3ca9ddabe41a1f8382d6fc1f7cea89459d0f320371f972"
+dependencies = [
+ "aead 0.6.0-rc.10",
+ "aes 0.9.0",
+ "cipher 0.5.1",
+ "ctr 0.10.0",
+ "ghash 0.6.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "subtle",
 ]
 
@@ -261,7 +310,15 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acb1161c6b64d1c3d83108213c2a2533a342ac225aabd0bda218278c2ddb00c0"
 dependencies = [
+<<<<<<< HEAD
  "nom",
+=======
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
+ "winnow 1.0.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -553,9 +610,15 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-lc-rs"
+<<<<<<< HEAD
 version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879b6c89592deb404ba4dc0ae6b58ffd1795c78991cbb5b8bc441c48a070440d"
+=======
+version = "1.16.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ec6fb3fe69024a75fa7e1bfb48aa6cf59706a101658ea01bfd33b2b248a038f"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "aws-lc-sys",
  "untrusted 0.7.1",
@@ -564,9 +627,15 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
+<<<<<<< HEAD
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "107a4e9d9cab9963e04e84bb8dee0e25f2a987f9a8bad5ed054abd439caa8f8c"
+=======
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f50037ee5e1e41e7b8f9d161680a725bd1626cb6f8c7e901f91f942850852fe7"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bindgen",
  "cc",
@@ -844,6 +913,7 @@ version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
 dependencies = [
+<<<<<<< HEAD
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
@@ -859,6 +929,18 @@ dependencies = [
 ]
 
 [[package]]
+=======
+ "bit-vec",
+]
+
+[[package]]
+name = "bit-vec"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "bitfield"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1105,9 +1187,15 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
+<<<<<<< HEAD
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
+=======
+version = "3.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 
 [[package]]
 name = "byte-unit"
@@ -1242,7 +1330,11 @@ dependencies = [
  "librms",
  "mac_address",
  "prettytable-rs",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1307,8 +1399,13 @@ dependencies = [
  "libc",
  "mac_address",
  "mockall",
+<<<<<<< HEAD
  "netlink-packet-route",
  "nix 0.30.1",
+=======
+ "netlink-packet-route 0.19.0",
+ "nix 0.31.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "nonzero_ext",
  "nvue-client",
  "opentelemetry",
@@ -1319,7 +1416,11 @@ dependencies = [
  "prost 0.14.1",
  "rand 0.9.2",
  "regex",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "resolv-conf",
  "rtnetlink",
  "rustls 0.23.34",
@@ -1328,8 +1429,13 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+<<<<<<< HEAD
  "sha2 0.10.9",
  "similar",
+=======
+ "sha2 0.11.0",
+ "similar 3.1.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "surge-ping",
  "tempfile",
  "tokio",
@@ -1374,7 +1480,14 @@ dependencies = [
  "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
+<<<<<<< HEAD
  "carbide-network",
+=======
+ "carbide-metrics-utils",
+ "carbide-network",
+ "carbide-network-segment-controller",
+ "carbide-nvlink-manager",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "carbide-preingestion-manager",
  "carbide-prost-builder",
  "carbide-redfish",
@@ -1383,6 +1496,10 @@ dependencies = [
  "carbide-site-explorer",
  "carbide-sqlx-testing",
  "carbide-ssh",
+<<<<<<< HEAD
+=======
+ "carbide-switch-controller",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -1446,8 +1563,13 @@ dependencies = [
  "rand 0.9.2",
  "rcgen",
  "regex",
+<<<<<<< HEAD
  "reqwest",
  "rsa",
+=======
+ "reqwest 0.13.3",
+ "rsa 0.9.10",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "rumqttc",
  "rustls 0.23.34",
  "rustls-pemfile",
@@ -1512,7 +1634,7 @@ dependencies = [
  "eyre",
  "futures",
  "futures-util",
- "hickory-proto",
+ "hickory-proto 0.26.1",
  "ipnetwork",
  "itertools 0.14.0",
  "lazy_static",
@@ -1699,7 +1821,11 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "rustls-pemfile",
  "rustls-pki-types",
  "serde",
@@ -1812,14 +1938,17 @@ dependencies = [
  "clap",
  "dns-record",
  "eyre",
- "local-ip-address",
  "metrics-endpoint",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "serde",
+<<<<<<< HEAD
  "serde_json",
  "thiserror 2.0.17",
+=======
+ "thiserror 2.0.18",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "tokio",
  "toml 0.8.23",
  "tonic 0.14.2",
@@ -1828,7 +1957,6 @@ dependencies = [
  "tracing-subscriber",
  "trust-dns-resolver",
  "trust-dns-server",
- "uuid",
 ]
 
 [[package]]
@@ -1873,7 +2001,23 @@ dependencies = [
  "carbide-rpc",
  "carbide-tls",
  "eyre",
+<<<<<<< HEAD
  "rand 0.9.2",
+=======
+]
+
+[[package]]
+name = "carbide-dpu-fmds-shared"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "carbide-dpu-agent-utils",
+ "carbide-rpc",
+ "governor",
+ "http-body-util",
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -1894,9 +2038,15 @@ dependencies = [
  "ctor",
  "eyre",
  "humantime",
+<<<<<<< HEAD
  "prost 0.14.1",
  "rand 0.9.2",
  "reqwest",
+=======
+ "prost",
+ "rand 0.10.1",
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "rustls-pemfile",
  "rustls-pki-types",
  "tempfile",
@@ -1967,8 +2117,14 @@ dependencies = [
  "carbide-sqlx-testing",
  "eyre",
  "futures-util",
+<<<<<<< HEAD
  "md5",
  "reqwest",
+=======
+ "hex",
+ "md5 0.8.0",
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "sqlx",
  "tokio",
@@ -1996,7 +2152,18 @@ dependencies = [
  "hyper",
  "hyper-util",
  "nonzero_ext",
+<<<<<<< HEAD
  "prost 0.14.1",
+=======
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "prometheus",
+ "prost",
+ "reqwest 0.13.3",
+ "rtnetlink",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "tokio",
  "tonic 0.14.2",
  "tonic-prost",
@@ -2030,10 +2197,17 @@ dependencies = [
  "mac_address",
  "nv-redfish",
  "prometheus",
+<<<<<<< HEAD
  "prost 0.14.1",
  "prost-types 0.14.1",
  "rand 0.9.2",
  "reqwest",
+=======
+ "prost",
+ "prost-types",
+ "rand 0.10.1",
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "serde_with",
@@ -2120,7 +2294,11 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "eyre",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "tracing",
@@ -2173,10 +2351,18 @@ dependencies = [
  "mac_address",
  "once_cell",
  "prettytable-rs",
+<<<<<<< HEAD
  "prost-types 0.14.1",
  "quick-xml 0.31.0",
  "regex",
  "reqwest",
+=======
+ "prost-types",
+ "quick-xml 0.39.3",
+ "regex",
+ "reqwest 0.13.3",
+ "russh",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2236,7 +2422,11 @@ dependencies = [
  "rand 0.9.2",
  "ratatui",
  "rcgen",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "russh",
  "serde",
  "serde_json",
@@ -2261,7 +2451,11 @@ dependencies = [
  "chrono",
  "futures",
  "futures-util",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -2329,7 +2523,59 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+<<<<<<< HEAD
  "thiserror 2.0.17",
+=======
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "carbide-network-segment-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "eyre",
+ "ipnetwork",
+ "opentelemetry",
+ "sqlx",
+ "state-controller",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-nvlink-manager"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-secrets",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "eyre",
+ "http",
+ "libnmxc",
+ "libnmxm",
+ "opentelemetry",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -2418,7 +2664,11 @@ dependencies = [
  "libredfish",
  "mac_address",
  "nv-redfish",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde_json",
  "sqlx",
  "thiserror 2.0.17",
@@ -2499,7 +2749,11 @@ dependencies = [
  "prost-types 0.14.1",
  "pwhash",
  "regex",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2638,7 +2892,11 @@ dependencies = [
  "indoc",
  "lazy_static",
  "libc",
+<<<<<<< HEAD
  "nix 0.30.1",
+=======
+ "nix 0.31.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
@@ -2690,6 +2948,31 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "carbide-switch-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-health-metrics",
+ "carbide-secrets",
+ "carbide-site-explorer",
+ "carbide-utils",
+ "carbide-uuid",
+ "config-version",
+ "eyre",
+ "librms",
+ "mac_address",
+ "opentelemetry",
+ "sqlx",
+ "state-controller",
+ "tracing",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "carbide-systemd"
 version = "0.0.0"
 dependencies = [
@@ -2825,6 +3108,18 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "cbc"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98db6aeaef0eeef2c1e3ce9a27b739218825dae116076352ac3777076aa22225"
+dependencies = [
+ "cipher 0.5.1",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "cbindgen"
 version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2845,9 +3140,15 @@ dependencies = [
 
 [[package]]
 name = "cc"
+<<<<<<< HEAD
 version = "1.2.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37521ac7aabe3d13122dc382493e20c9416f299d2ccd5b3a5340a2570cdeb0f3"
+=======
+version = "1.2.61"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d16d90359e986641506914ba71350897565610e87ce0ad9e6f28569db3dd5c6d"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -2970,6 +3271,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2978,6 +3280,16 @@ dependencies = [
  "glob",
  "libc",
  "libloading",
+=======
+name = "cipher"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e34d8227fe1ba289043aeb13792056ff80fd6de1a9f49137a5f499de8e8c78ea"
+dependencies = [
+ "block-buffer 0.12.0",
+ "crypto-common 0.2.1",
+ "inout 0.2.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -3004,9 +3316,15 @@ dependencies = [
 
 [[package]]
 name = "clap_complete"
+<<<<<<< HEAD
 version = "4.5.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e602857739c5a4291dfa33b5a298aeac9006185229a700e5810a3ef7272d971"
+=======
+version = "4.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "660c0520455b1013b9bcb0393d5f643d7e4454fb69c915b8d6d2aa0e9a45acc3"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "clap",
 ]
@@ -3092,9 +3410,15 @@ dependencies = [
 
 [[package]]
 name = "compact_str"
+<<<<<<< HEAD
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b79c4069c6cad78e2e0cdfcbd26275770669fb39fd308a752dc110e83b9af32"
+=======
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fdb1325a1cece981e8a296ab8f0f9b63ae357bd0784a9faaf548cc7b480707a"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "castaway",
  "cfg-if",
@@ -3473,6 +3797,20 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "crypto-common"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
+dependencies = [
+ "getrandom 0.4.2",
+ "hybrid-array",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "crypto-mac"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3505,9 +3843,15 @@ dependencies = [
 
 [[package]]
 name = "ctor"
+<<<<<<< HEAD
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec09e802f5081de6157da9a75701d6c713d8dc3ba52571fd4bd25f412644e8a6"
+=======
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c24d2b2b7c12a2fffb7c5c8fd0dcda7ca14b4600fa2d3701b6079aefb6fa180"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "ctor-proc-macro",
  "dtor",
@@ -3529,6 +3873,28 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "ctr"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17469f8eb9bdbfad10f71f4cfddfd38b01143520c0e717d8796ccb4d44d44e42"
+dependencies = [
+ "cipher 0.5.1",
+]
+
+[[package]]
+name = "ctutils"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
+dependencies = [
+ "cmov",
+ "subtle",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "curve25519-dalek"
 version = "4.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3851,6 +4217,7 @@ checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
 
 [[package]]
 name = "dhcproto"
+<<<<<<< HEAD
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6794294f2c4665aae452e950c2803a1e487c5672dc8448f0bfa3f52ff67e270"
@@ -3862,6 +4229,17 @@ dependencies = [
  "thiserror 1.0.69",
  "trust-dns-proto 0.22.0",
  "url",
+=======
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "425ab19f6a915beac79cac8ec2810c1311b502ae14d7f294682081cf5ae4c5bb"
+dependencies = [
+ "dhcproto-macros",
+ "hickory-proto 0.25.2",
+ "ipnet",
+ "rand 0.9.4",
+ "thiserror 2.0.18",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -3898,6 +4276,21 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "digest"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
+dependencies = [
+ "block-buffer 0.12.0",
+ "const-oid 0.10.2",
+ "crypto-common 0.2.1",
+ "ctutils",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "dirs-next"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3957,6 +4350,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c84070523f8ba0f9127ff156920f27eb27b302b425efe60bf5f41ec244d1c60"
 dependencies = [
  "bytes",
+<<<<<<< HEAD
+=======
+ "domain-macros",
+ "hashbrown 0.17.0",
+ "jiff",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "octseq",
  "rand 0.8.5",
  "time",
@@ -4115,7 +4514,34 @@ dependencies = [
  "pem-rfc7468",
  "pkcs8",
  "rand_core 0.6.4",
+<<<<<<< HEAD
  "sec1",
+=======
+ "sec1 0.7.3",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "elliptic-curve"
+version = "0.14.0-rc.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bde7860544606d222fd6bd6d9f9a0773321bf78072a637e1d560a058c0031978"
+dependencies = [
+ "base16ct 1.0.0",
+ "crypto-bigint 0.7.0-rc.28",
+ "crypto-common 0.2.1",
+ "digest 0.11.3",
+ "hkdf 0.13.0",
+ "hybrid-array",
+ "once_cell",
+ "pem-rfc7468 1.0.0",
+ "pkcs8 0.11.0-rc.11",
+ "rand_core 0.10.1",
+ "rustcrypto-ff",
+ "rustcrypto-group",
+ "sec1 0.8.1",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "subtle",
  "zeroize",
 ]
@@ -4306,14 +4732,23 @@ dependencies = [
 
 [[package]]
 name = "filetime"
+<<<<<<< HEAD
 version = "0.2.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc0505cd1b6fa6580283f6bdf70a73fcf4aba1184038c90902b92b3dd0df63ed"
+=======
+version = "0.2.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f98844151eee8917efc50bd9e8318cb963ae8b297431495d3f758616ea5c57db"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "cfg-if",
  "libc",
  "libredox",
+<<<<<<< HEAD
  "windows-sys 0.60.2",
+=======
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -4604,6 +5039,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "getset"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4613,6 +5049,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+=======
+name = "getrandom"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi 6.0.0",
+ "rand_core 0.10.1",
+ "wasip2",
+ "wasip3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -4805,7 +5254,22 @@ dependencies = [
 name = "hashbrown"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+<<<<<<< HEAD
 checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
+=======
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.2.0",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "allocator-api2",
  "equivalent",
@@ -4910,6 +5374,10 @@ dependencies = [
  "futures-channel",
  "futures-io",
  "futures-util",
+<<<<<<< HEAD
+=======
+ "hickory-proto 0.26.1",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "idna 1.1.0",
  "ipnet",
  "once_cell",
@@ -4922,6 +5390,51 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "hickory-proto"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502"
+dependencies = [
+ "async-trait",
+ "cfg-if",
+ "data-encoding",
+ "enum-as-inner",
+ "futures-channel",
+ "futures-util",
+ "idna 1.1.0",
+ "ipnet",
+ "once_cell",
+ "rand 0.9.4",
+ "thiserror 2.0.18",
+ "tinyvec",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "hickory-proto"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bab31817bfb44672a252e97fe81cd0c18d1b2cf892108922f6818820df8c643"
+dependencies = [
+ "data-encoding",
+ "idna 1.1.0",
+ "ipnet",
+ "jni",
+ "once_cell",
+ "prefix-trie",
+ "rand 0.10.1",
+ "ring",
+ "thiserror 2.0.18",
+ "tinyvec",
+ "tracing",
+ "url",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "hickory-resolver"
 version = "0.24.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4929,7 +5442,12 @@ checksum = "cbb117a1ca520e111743ab2f6688eddee69db4e0ea242545a604dce8a66fd22e"
 dependencies = [
  "cfg-if",
  "futures-util",
+<<<<<<< HEAD
  "hickory-proto",
+=======
+ "hickory-net",
+ "hickory-proto 0.26.1",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "ipconfig",
  "lru-cache",
  "once_cell",
@@ -5009,9 +5527,15 @@ checksum = "f558a64ac9af88b5ba400d99b579451af0d39c6d360980045b91aac966d705e2"
 
 [[package]]
 name = "http"
+<<<<<<< HEAD
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4a85d31aea989eead29a3aaf9e1115a180df8282431156e533de47660892565"
+=======
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3ba2a386d7f85a81f119ad7498ebe444d2e22c2af0b86b069416ace48b3311a"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bytes",
  "fnv",
@@ -5085,6 +5609,21 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "hybrid-array"
+version = "0.4.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d46837a0ed51fe95bd3b05de33cd64a1ee88fc797477ca48446872504507c5"
+dependencies = [
+ "ctutils",
+ "subtle",
+ "typenum",
+ "zeroize",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "hyper"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5356,7 +5895,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6717a8d2a5a929a1a2eb43a12812498ed141a0bcfb7e8f7844fbdbe4303bba9f"
 dependencies = [
  "equivalent",
+<<<<<<< HEAD
  "hashbrown 0.16.0",
+=======
+ "hashbrown 0.17.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_core",
 ]
@@ -5549,9 +6092,15 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "jiff"
+<<<<<<< HEAD
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e67e8da4c49d6d9909fe03361f9b620f58898859f5c7aded68351e85e71ecf50"
+=======
+version = "0.2.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f00b5dbd620d61dfdcb6007c9c1f6054ebd75319f163d886a9055cec1155073d"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "jiff-static",
  "log",
@@ -5562,9 +6111,15 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
+<<<<<<< HEAD
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0c84ee7f197eca9a86c6fd6cb771e55eb991632f15f2bc3ca6ec838929e6e78"
+=======
+version = "0.2.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e000de030ff8022ea1da3f466fbb0f3a809f5e51ed31f6dd931c35181ad8e6d7"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5583,9 +6138,15 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
+<<<<<<< HEAD
 version = "0.3.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b011eec8cc36da2aab2d5cff675ec18454fad408585853910a202391cf9f8e65"
+=======
+version = "0.3.98"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67df7112613f8bfd9150013a0314e196f4800d3201ae742489d999db2f979f08"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "once_cell",
  "wasm-bindgen",
@@ -5628,9 +6189,15 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
+<<<<<<< HEAD
 version = "10.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c76e1c7d7df3e34443b3621b459b066a7b79644f059fc8b2db7070c825fd417e"
+=======
+version = "10.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -5663,6 +6230,55 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "kasuari"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
+dependencies = [
+ "hashbrown 0.16.1",
+ "portable-atomic",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "keccak"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e24a010dd405bd7ed803e5253182815b41bf2e6a80cc3bfc066658e03a198aa"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+]
+
+[[package]]
+name = "kem"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01737161ba802849cfd486b5bd209d38ba4943494c249a8126005170c7621edd"
+dependencies = [
+ "crypto-common 0.2.1",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "konst"
+version = "0.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "128133ed7824fcd73d6e7b17957c5eb7bacb885649bd8c69708b2331a10bcefb"
+dependencies = [
+ "konst_macro_rules",
+]
+
+[[package]]
+name = "konst_macro_rules"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "kopium"
 version = "0.22.5"
 source = "git+https://github.com/kube-rs/kopium?rev=f2e69f0cbae446123ce11ac3a192d9940a56d434#f2e69f0cbae446123ce11ac3a192d9940a56d434"
@@ -5696,9 +6312,15 @@ dependencies = [
 
 [[package]]
 name = "kqueue-sys"
+<<<<<<< HEAD
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed9625ffda8729b85e45cf04090035ac368927b8cebc34898e7c120f52e4838b"
+=======
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7b65860415f949f23fa882e669f2dbd4a0f0eeb1acdd56790b30494afd7da2f"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bitflags 1.3.2",
  "libc",
@@ -5923,7 +6545,11 @@ dependencies = [
  "async-trait",
  "getopts",
  "http",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_derive",
  "serde_json",
@@ -5958,13 +6584,24 @@ dependencies = [
 
 [[package]]
 name = "libredox"
+<<<<<<< HEAD
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "416f7e718bdb06000964960ffa43b4335ad4012ae8b99060261aa4a8088d5ccb"
+=======
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e02f3bb43d335493c96bf3fd3a321600bf6bd07ed34bc64118e9293bdffea46c"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bitflags 2.10.0",
  "libc",
+<<<<<<< HEAD
  "redox_syscall",
+=======
+ "plain",
+ "redox_syscall 0.7.5",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -6025,6 +6662,24 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "line-clipping"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f50e8f47623268b5407192d26876c4d7f89d686ca130fdc53bced4814cd29f8"
+dependencies = [
+ "bitflags 2.11.1",
+]
+
+[[package]]
+name = "link-section"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4641b91711debb59c61b07eb5e30521ed6d9e2bdd9fd04f934e7da3a5bc386d4"
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6055,6 +6710,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+<<<<<<< HEAD
 name = "local-ip-address"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6067,6 +6723,8 @@ dependencies = [
 ]
 
 [[package]]
+=======
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6080,9 +6738,12 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
+<<<<<<< HEAD
 dependencies = [
  "value-bag",
 ]
+=======
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 
 [[package]]
 name = "logfmt"
@@ -6108,7 +6769,20 @@ version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
 dependencies = [
+<<<<<<< HEAD
  "hashbrown 0.16.0",
+=======
+ "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "lru"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
+dependencies = [
+ "hashbrown 0.17.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -6218,9 +6892,21 @@ checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
 name = "memchr"
+<<<<<<< HEAD
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
+=======
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+
+[[package]]
+name = "memmem"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a64a92489e2744ce060c349162be1c5f33c6969234104dbd99ddb5feb08b8c15"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 
 [[package]]
 name = "memoffset"
@@ -6233,9 +6919,15 @@ dependencies = [
 
 [[package]]
 name = "metrics"
+<<<<<<< HEAD
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25dea7ac8057892855ec285c440160265225438c3c45072613c25a4b26e98ef5"
+=======
+version = "0.24.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff56c2e7dce6bd462e3b8919986a617027481b1dcc703175b58cf9dd98a2f071"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "ahash 0.8.12",
  "portable-atomic",
@@ -6283,9 +6975,15 @@ dependencies = [
 
 [[package]]
 name = "metrics-util"
+<<<<<<< HEAD
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8496cc523d1f94c1385dd8f0f0c2c480b2b8aeccb5b7e4485ad6365523ae376"
+=======
+version = "0.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e56997f084e57b045edf17c3ed8ba7f9f779c670df8206dfd1c736f4c02dc4a"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
@@ -6402,6 +7100,20 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "module-lattice"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc7c90d33a0dac244570c26461d761ffaeadb3bfc2b17cc625ae2185cafdffae"
+dependencies = [
+ "ctutils",
+ "hybrid-array",
+ "num-traits",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "moka"
 version = "0.12.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6433,7 +7145,11 @@ dependencies = [
  "prost-build 0.14.1",
  "prost-types 0.14.1",
  "regex",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "rumqttc",
  "serde",
  "serde_json",
@@ -6479,6 +7195,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "neli"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6506,6 +7223,12 @@ dependencies = [
  "serde",
  "syn 2.0.117",
 ]
+=======
+name = "ndk-context"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 
 [[package]]
 name = "netlink-packet-core"
@@ -6608,6 +7331,31 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "nix"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6d0705320c1e6ba1d912b5e37cf18071b6c2e9b7fa8215a1e8a7651966f5d3"
+dependencies = [
+ "bitflags 2.11.1",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
+name = "nmxc_client"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "libnmxc",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6681,7 +7429,11 @@ dependencies = [
  "fmt",
  "jsonwebtoken",
  "mockito",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -6736,9 +7488,15 @@ dependencies = [
 
 [[package]]
 name = "num-conv"
+<<<<<<< HEAD
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
+=======
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6673768db2d862beb9b39a78fdcb1a69439615d5794a1be50caa9bc92c81967"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 
 [[package]]
 name = "num-derive"
@@ -6872,8 +7630,12 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
+<<<<<<< HEAD
  "eyre",
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "serde",
  "serde_json",
  "serde_yaml",
@@ -7136,16 +7898,27 @@ dependencies = [
 
 [[package]]
 name = "pageant"
+<<<<<<< HEAD
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb28bd89a207e5cad59072ac4b364b08459d05f90ccfbcdaa920a95857d94430"
+=======
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b537f975f6d8dcf48db368d7ec209d583b015713b5df0f5d92d2631e4ff5595"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "byteorder",
  "bytes",
  "delegate",
  "futures",
  "log",
+<<<<<<< HEAD
  "rand 0.8.5",
+=======
+ "rand 0.8.6",
+ "sha2 0.10.9",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "thiserror 1.0.69",
  "tokio",
  "windows",
@@ -7431,18 +8204,30 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
+<<<<<<< HEAD
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
+=======
+version = "1.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cbf0d9e68100b3a7989b4901972f265cd542e560a3a8a724e1e20322f4d06ce9"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
+<<<<<<< HEAD
 version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
+=======
+version = "1.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a990e22f43e84855daf260dded30524ef4a9021cc7541c26540500a50b624389"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7489,10 +8274,19 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e847e2c91a18bfa887dd028ec33f2fe6f25db77db3619024764914affe8b69a6"
 dependencies = [
+<<<<<<< HEAD
  "aes",
  "cbc",
  "der",
  "pbkdf2 0.12.2",
+=======
+ "aes 0.9.0",
+ "aes-gcm 0.11.0-rc.3",
+ "cbc 0.2.0",
+ "der 0.8.0",
+ "pbkdf2 0.13.0",
+ "rand_core 0.10.1",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "scrypt",
  "sha2 0.10.9",
  "spki",
@@ -7697,6 +8491,20 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "prefix-trie"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90f561214012d3fc240a1f9c817cc4d57f5310910d066069c1b093f766bb5966"
+dependencies = [
+ "either",
+ "ipnet",
+ "num-traits",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7721,6 +8529,23 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "primefield"
+version = "0.14.0-rc.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93401c13cc7ff24684571cfca9d3cf9ebabfaf3d4b7b9963ade41ec54da196b5"
+dependencies = [
+ "crypto-bigint 0.7.0-rc.28",
+ "crypto-common 0.2.1",
+ "rand_core 0.10.1",
+ "rustcrypto-ff",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "primeorder"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7736,28 +8561,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219cb19e96be00ab2e37d6e299658a0cfa83e52429179969b0f0121b4ac46983"
 dependencies = [
  "toml_edit 0.23.7",
-]
-
-[[package]]
-name = "proc-macro-error-attr2"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96de42df36bb9bba5542fe9f1a054b8cc87e172759a1868aa05c1f3acc89dfc5"
-dependencies = [
- "proc-macro2",
- "quote",
-]
-
-[[package]]
-name = "proc-macro-error2"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11ec05c52be0a07b08061f7dd003e7d7092e0472bc731b4af7bb1ef876109802"
-dependencies = [
- "proc-macro-error-attr2",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -7979,9 +8782,15 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
+<<<<<<< HEAD
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e8bbe1a966bd2f362681a44f6edce3c2310ac21e4d5067a6e7ec396297a6ea0"
+=======
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c3a14896dfa883796f1cb410461aef38810ea05f2b2c33c5aded3649095fdad"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bitflags 2.10.0",
  "memchr",
@@ -8039,9 +8848,15 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
+<<<<<<< HEAD
 version = "0.38.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42a232e7487fc2ef313d96dde7948e7a3c05101870d8985e4fd8d26aedd27b89"
+=======
+version = "0.39.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "721da970c312655cde9b4ffe0547f20a8494866a4af5ff51f18b7c633d0c870b"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "memchr",
  "serde",
@@ -8243,9 +9058,15 @@ dependencies = [
 
 [[package]]
 name = "rcgen"
+<<<<<<< HEAD
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+=======
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10b99e0098aa4082912d4c649628623db6aba77335e4f4569ff5083a6448b32e"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "pem",
  "ring",
@@ -8260,7 +9081,20 @@ version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
+<<<<<<< HEAD
  "bitflags 2.10.0",
+=======
+ "bitflags 2.11.1",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4666a1a60d8412eab19d94f6d13dcc9cea0a5ef4fdf6a5db306537413c661b1b"
+dependencies = [
+ "bitflags 2.11.1",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -8372,7 +9206,56 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+<<<<<<< HEAD
  "wasm-streams",
+=======
+ "wasm-streams 0.4.2",
+ "web-sys",
+ "webpki-roots 1.0.7",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
+dependencies = [
+ "base64",
+ "bytes",
+ "cookie",
+ "cookie_store",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "mime_guess",
+ "percent-encoding",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-streams 0.5.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "web-sys",
  "webpki-roots 1.0.3",
 ]
@@ -8395,9 +9278,15 @@ dependencies = [
 
 [[package]]
 name = "rhai"
+<<<<<<< HEAD
 version = "1.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4e35aaaa439a5bda2f8d15251bc375e4edfac75f9865734644782c9701b5709"
+=======
+version = "1.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f9ef5dabe4c0b43d8f1187dc6beb67b53fe607fff7e30c5eb7f71b814b8c2c1"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "ahash 0.8.12",
  "bitflags 2.10.0",
@@ -8526,30 +9415,62 @@ dependencies = [
  "flume",
  "futures-util",
  "log",
+<<<<<<< HEAD
  "rustls-native-certs 0.7.3",
  "rustls-pemfile",
  "rustls-webpki 0.102.8",
  "thiserror 1.0.69",
  "tokio",
  "tokio-rustls 0.25.0",
+=======
+ "rustls-native-certs",
+ "rustls-pemfile",
+ "rustls-webpki 0.102.8",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tokio-util",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
 name = "russh"
+<<<<<<< HEAD
 version = "0.54.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23ca8e9091b72afdc9979bddcd1988ad898fa7bc0b85c8da8c154c29d44319eb"
 dependencies = [
  "aes",
+=======
+version = "0.60.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c9e358980fe9b079b99da387117864ee6f0a3fd02f39e5b5fde6af9c2895374"
+dependencies = [
+ "aead 0.6.0-rc.10",
+ "aes 0.8.4",
+ "aes 0.9.0",
+ "aes-gcm 0.11.0-rc.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "aws-lc-rs",
  "base64ct",
  "bitflags 2.10.0",
  "block-padding",
  "byteorder",
  "bytes",
+<<<<<<< HEAD
  "cbc",
  "ctr",
  "curve25519-dalek",
+=======
+ "cbc 0.1.2",
+ "cbc 0.2.0",
+ "cipher 0.5.1",
+ "crypto-bigint 0.7.0-rc.28",
+ "ctr 0.10.0",
+ "ctr 0.9.2",
+ "curve25519-dalek 5.0.0-pre.6",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "data-encoding",
  "delegate",
  "der",
@@ -8600,13 +9521,23 @@ dependencies = [
 
 [[package]]
 name = "russh-cryptovec"
+<<<<<<< HEAD
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb0ed583ff0f6b4aa44c7867dd7108df01b30571ee9423e250b4cc939f8c6cf"
+=======
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36140e8a20297bc2e8338807c3d9ca911f7fa49d7539cbcd6d48d3befd70efd8"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "libc",
  "log",
+<<<<<<< HEAD
  "nix 0.29.0",
+=======
+ "nix 0.31.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "ssh-encoding",
  "winapi",
 ]
@@ -8696,7 +9627,11 @@ dependencies = [
  "async-trait",
  "bytes",
  "http",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "rustify_derive",
  "serde",
  "serde_json",
@@ -8771,7 +9706,11 @@ dependencies = [
  "once_cell",
  "ring",
  "rustls-pki-types",
+<<<<<<< HEAD
  "rustls-webpki 0.103.8",
+=======
+ "rustls-webpki 0.103.13",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "subtle",
  "zeroize",
 ]
@@ -8826,6 +9765,36 @@ version = "0.102.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64ca1bc8749bd4cf37b5ce386cc146580777b4e8572c7b97baf22c83f444bee9"
 dependencies = [
+<<<<<<< HEAD
+ "ring",
+ "rustls-pki-types",
+ "untrusted 0.9.0",
+=======
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "jni",
+ "log",
+ "once_cell",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-platform-verifier-android",
+ "rustls-webpki 0.103.13",
+ "security-framework",
+ "security-framework-sys",
+ "webpki-root-certs",
+ "windows-sys 0.61.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
+]
+
+[[package]]
+name = "rustls-webpki"
+<<<<<<< HEAD
+version = "0.103.8"
+=======
+version = "0.102.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64ca1bc8749bd4cf37b5ce386cc146580777b4e8572c7b97baf22c83f444bee9"
+dependencies = [
  "ring",
  "rustls-pki-types",
  "untrusted 0.9.0",
@@ -8833,7 +9802,8 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.8"
+version = "0.103.13"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ffdfa2f5286e2247234e03f680868ac2815974dc39e00ea15adc445d0aafe52"
 dependencies = [
@@ -8861,7 +9831,12 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97a22f5af31f73a954c10289c93e8a50cc23d971e80ee446f1f6f7137a088213"
 dependencies = [
+<<<<<<< HEAD
  "cipher 0.4.4",
+=======
+ "cfg-if",
+ "cipher 0.5.1",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -9187,11 +10162,19 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
+<<<<<<< HEAD
 version = "3.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa66c845eee442168b2c8134fec70ac50dc20e760769c8ba0ad1319ca1959b04"
 dependencies = [
  "base64 0.22.1",
+=======
+version = "3.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05839ce67618e14a09b286535c0d9c94e85ef25469b0e13cb4f844e5593eb19"
+dependencies = [
+ "base64",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "chrono",
  "hex",
  "indexmap 1.9.3",
@@ -9206,9 +10189,15 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
+<<<<<<< HEAD
 version = "3.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b91a903660542fced4e99881aa481bdbaec1634568ee02e0b8bd57c64cb38955"
+=======
+version = "3.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf2ebbe86054f9b45bc3881e865683ccfaccce97b9b4cb53f3039d67f355a334"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "darling 0.21.3",
  "proc-macro2",
@@ -9376,6 +10365,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "similar"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d93e861ede2e497b47833469b8ec9d5c07fa4c78ce7a00f6eb7dd8168b4b3f"
+dependencies = [
+ "bstr",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "simple_asn1"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9967,9 +10968,15 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tar"
+<<<<<<< HEAD
 version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d863878d212c87a19c1a610eb53bb01fe12951c0501cf5a0d65f724914a667a"
+=======
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22692a6476a21fa75fdfc11d452fda482af402c008cdbaf3476414e122040973"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "filetime",
  "libc",
@@ -10189,9 +11196,15 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
+<<<<<<< HEAD
 version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72a2903cd7736441aac9df9d7688bd0ce48edccaadf181c3b90be801e81d3d86"
+=======
+version = "1.52.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "110a78583f19d5cdb2c5ccf321d1290344e71313c6c37d43520d386027d18386"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bytes",
  "libc",
@@ -10333,7 +11346,26 @@ dependencies = [
  "toml_datetime 0.7.3",
  "toml_parser",
  "toml_writer",
+<<<<<<< HEAD
  "winnow 0.7.13",
+=======
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
+dependencies = [
+ "indexmap 2.14.0",
+ "serde_core",
+ "serde_spanned 1.1.1",
+ "toml_datetime 1.1.1+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 1.0.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -10391,7 +11423,11 @@ dependencies = [
  "toml_datetime 0.7.3",
  "toml_parser",
  "toml_writer",
+<<<<<<< HEAD
  "winnow 0.7.13",
+=======
+ "winnow 1.0.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -10400,7 +11436,11 @@ version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0cbe268d35bdb4bb5a56a2de88d0ad0eb70af5384a99d648cd4b3d04039800e"
 dependencies = [
+<<<<<<< HEAD
  "winnow 0.7.13",
+=======
+ "winnow 1.0.2",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 ]
 
 [[package]]
@@ -10618,9 +11658,15 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
+<<<<<<< HEAD
 version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
+=======
+version = "0.6.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68d6fdd9f81c2819c9a8b0e0cd91660e7746a8e6ea2ba7c6b2b057985f6bcb51"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "base64 0.22.1",
  "bitflags 2.10.0",
@@ -11087,6 +12133,19 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "universal-hash"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4987bdc12753382e0bec4a65c50738ffaabc998b9cdd1f952fb5f39b0048a96"
+dependencies = [
+ "crypto-common 0.2.1",
+ "ctutils",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11184,7 +12243,11 @@ dependencies = [
  "bytes",
  "derive_builder 0.12.0",
  "http",
+<<<<<<< HEAD
  "reqwest",
+=======
+ "reqwest 0.13.3",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "rustify",
  "rustify_derive",
  "serde",
@@ -11278,9 +12341,15 @@ checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
 
 [[package]]
 name = "wasm-bindgen"
+<<<<<<< HEAD
 version = "0.2.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da95793dfc411fbbd93f5be7715b0578ec61fe87cb1a42b12eb625caa5c5ea60"
+=======
+version = "0.2.121"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49ace1d07c165b0864824eee619580c4689389afa9dc9ed3a4c75040d82e6790"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -11291,9 +12360,15 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
+<<<<<<< HEAD
 version = "0.4.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "551f88106c6d5e7ccc7cd9a16f312dd3b5d36ea8b4954304657d5dfba115d4a0"
+=======
+version = "0.4.71"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96492d0d3ffba25305a7dc88720d250b1401d7edca02cc3bcd50633b424673b8"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -11304,9 +12379,15 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
+<<<<<<< HEAD
 version = "0.2.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04264334509e04a7bf8690f2384ef5265f05143a4bff3889ab7a3269adab59c2"
+=======
+version = "0.2.121"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e68e6f4afd367a562002c05637acb8578ff2dea1943df76afb9e83d177c8578"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -11314,9 +12395,15 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
+<<<<<<< HEAD
 version = "0.2.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "420bc339d9f322e562942d52e115d57e950d12d88983a14c79b86859ee6c7ebc"
+=======
+version = "0.2.121"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d95a9ec35c64b2a7cb35d3fead40c4238d0940c86d107136999567a4703259f2"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -11327,18 +12414,30 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
+<<<<<<< HEAD
 version = "0.2.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f218a38c84bcb33c25ec7059b07847d465ce0e0a76b995e134a45adcb6af76"
+=======
+version = "0.2.121"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4e0100b01e9f0d03189a92b96772a1fb998639d981193d7dbab487302513441"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "unicode-ident",
 ]
 
 [[package]]
 name = "wasm-bindgen-test"
+<<<<<<< HEAD
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfc379bfb624eb59050b509c13e77b4eb53150c350db69628141abce842f2373"
+=======
+version = "0.3.71"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af5ec93229ad9ccd0a545a516dec76dc276613f278f6a91aa6b463d5b33d42d0"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "js-sys",
  "minicov",
@@ -11349,9 +12448,15 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-test-macro"
+<<<<<<< HEAD
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "085b2df989e1e6f9620c1311df6c996e83fe16f57792b272ce1e024ac16a90f1"
+=======
+version = "0.3.71"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c81b9fef827e575e0e54431736d1baa0d700315d8c62cfef1f61fa3aad0cbeb"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "proc-macro2",
  "quote",
@@ -11359,6 +12464,37 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "wasm-bindgen-test-shared"
+version = "0.2.121"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f4d8ae7ad5440360e9799dfd42857d126454a88441ddf72d288ef83fa47f527"
+
+[[package]]
+name = "wasm-encoder"
+version = "0.244.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "990065f2fe63003fe337b932cfb5e3b80e0b4d0f5ff650e6985b1048f62c8319"
+dependencies = [
+ "leb128fmt",
+ "wasmparser",
+]
+
+[[package]]
+name = "wasm-metadata"
+version = "0.244.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909"
+dependencies = [
+ "anyhow",
+ "indexmap 2.14.0",
+ "wasm-encoder",
+ "wasmparser",
+]
+
+[[package]]
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "wasm-streams"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11373,9 +12509,15 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
+<<<<<<< HEAD
 version = "0.3.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a1f95c0d03a47f4ae1f7a64643a6bb97465d9b740f0fa8f90ea33915c99a9a1"
+=======
+version = "0.3.98"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b572dff8bcf38bad0fa19729c89bb5748b2b9b1d8be70cf90df697e3a8f32aa"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -11781,10 +12923,17 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "winreg"
 version = "0.50.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "524e57b2c537c0f9b1e69f1965311ec12182b4122e45035b1508cd24d2adadb1"
+=======
+name = "winnow"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "cfg-if",
  "windows-sys 0.48.0",
@@ -11845,8 +12994,13 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "eyre",
+<<<<<<< HEAD
  "similar",
  "toml_edit 0.23.7",
+=======
+ "similar 3.1.0",
+ "toml_edit 0.25.11+spec-1.1.0",
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "version-compare 0.2.1",
  "walkdir",
 ]
@@ -11911,9 +13065,15 @@ dependencies = [
 
 [[package]]
 name = "zerofrom"
+<<<<<<< HEAD
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50cc42e0333e05660c3587f3bf9d0478688e15d870fab3346451ce7f8c9fbea5"
+=======
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69faa1f2a1ea75661980b013019ed6687ed0e83d069bc1114e2cc74c6c04c4df"
+>>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 dependencies = [
  "zerofrom-derive",
 ]
