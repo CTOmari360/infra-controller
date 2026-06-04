@@ -554,6 +554,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetMachineStatusDetailsHandler(dbSession),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/dpu",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetDpuMachinesHandler(dbSession, scp),
+		},
 		// Machine GPU Stats endpoint
 		{
 			Path:    apiPathPrefix + "/machine/gpu/stats",
