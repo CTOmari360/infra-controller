@@ -37,6 +37,12 @@ type StatusDetailCreateInput struct {
 	Message  *string
 }
 
+type StatusDetailUpdateInput struct {
+	StatusDetailID uuid.UUID
+	Status         string
+	Message        *string
+}
+
 const (
 	// StatusDetailRelationName is the relation name for the StatusDetail model
 	StatusDetailRelationName = "StatusDetail"
@@ -66,17 +72,17 @@ func (sd *StatusDetail) BeforeAppendModel(ctx context.Context, query bun.Query) 
 // StatusDetailDAO is the data access interface for StatusDetail
 type StatusDetailDAO interface {
 	//
-	GetAllByEntityID(ctx context.Context, tx *db.Tx, entityID string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]StatusDetail, int, error)
+	GetAllByEntityID(ctx context.Context, tx *db.Tx, entityID string, page paginator.PageInput) ([]StatusDetail, int, error)
 	//
-	GetAllByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]StatusDetail, int, error)
+	GetAllByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, page paginator.PageInput) ([]StatusDetail, int, error)
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID) (*StatusDetail, error)
 	//
-	CreateFromParams(ctx context.Context, tx *db.Tx, entityID string, status string, message *string) (*StatusDetail, error)
+	Create(ctx context.Context, tx *db.Tx, input StatusDetailCreateInput) (*StatusDetail, error)
 	//
 	CreateMultiple(ctx context.Context, tx *db.Tx, inputs []StatusDetailCreateInput) ([]StatusDetail, error)
 	//
-	UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, status string, message *string) (*StatusDetail, error)
+	Update(ctx context.Context, tx *db.Tx, input StatusDetailUpdateInput) (*StatusDetail, error)
 	// GetRecentByEntityIDs returns most recent status records for specified entity IDs
 	GetRecentByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, recentCount int) ([]StatusDetail, error)
 }
@@ -111,7 +117,7 @@ func (sdd StatusDetailSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id uuid.UU
 }
 
 // GetAllByEntityID returns status details for the given entity ID
-func (sdd StatusDetailSQLDAO) GetAllByEntityID(ctx context.Context, tx *db.Tx, entityID string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]StatusDetail, int, error) {
+func (sdd StatusDetailSQLDAO) GetAllByEntityID(ctx context.Context, tx *db.Tx, entityID string, page paginator.PageInput) ([]StatusDetail, int, error) {
 	// Create a child span and set the attributes for current request
 	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.GetAllByEntityID")
 	if sdDAOSpan != nil {
@@ -129,11 +135,11 @@ func (sdd StatusDetailSQLDAO) GetAllByEntityID(ctx context.Context, tx *db.Tx, e
 		Field: "created",
 		Order: paginator.OrderDescending,
 	}
-	if orderBy != nil {
-		normalizedOrderBy = orderBy
+	if page.OrderBy != nil {
+		normalizedOrderBy = page.OrderBy
 	}
 
-	paginator, err := paginator.NewPaginator(ctx, query, offset, limit, normalizedOrderBy, StatusDetailOrderByFields)
+	paginator, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, normalizedOrderBy, StatusDetailOrderByFields)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -147,7 +153,7 @@ func (sdd StatusDetailSQLDAO) GetAllByEntityID(ctx context.Context, tx *db.Tx, e
 }
 
 // GetAllByEntityIDs returns status details for the given set of entity IDs
-func (sdd StatusDetailSQLDAO) GetAllByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]StatusDetail, int, error) {
+func (sdd StatusDetailSQLDAO) GetAllByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, page paginator.PageInput) ([]StatusDetail, int, error) {
 	// Create a child span and set the attributes for current request
 	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.GetAllByEntityIDs")
 	if sdDAOSpan != nil {
@@ -167,11 +173,11 @@ func (sdd StatusDetailSQLDAO) GetAllByEntityIDs(ctx context.Context, tx *db.Tx, 
 		Field: "created",
 		Order: paginator.OrderDescending,
 	}
-	if orderBy != nil {
-		normalizedOrderBy = orderBy
+	if page.OrderBy != nil {
+		normalizedOrderBy = page.OrderBy
 	}
 
-	paginator, err := paginator.NewPaginator(ctx, query, offset, limit, normalizedOrderBy, StatusDetailOrderByFields)
+	paginator, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, normalizedOrderBy, StatusDetailOrderByFields)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -184,21 +190,21 @@ func (sdd StatusDetailSQLDAO) GetAllByEntityIDs(ctx context.Context, tx *db.Tx, 
 	return sds, paginator.Total, nil
 }
 
-// CreateFromParams creates a new StatusDetail from the given parameters
-func (sdd StatusDetailSQLDAO) CreateFromParams(ctx context.Context, tx *db.Tx, entityID string, status string, message *string) (*StatusDetail, error) {
+// Create creates a new StatusDetail from the given parameters
+func (sdd StatusDetailSQLDAO) Create(ctx context.Context, tx *db.Tx, input StatusDetailCreateInput) (*StatusDetail, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.CreateFromParams")
+	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.Create")
 	if sdDAOSpan != nil {
 		defer sdDAOSpan.End()
-		sdd.tracerSpan.SetAttribute(sdDAOSpan, "entityID", entityID)
+		sdd.tracerSpan.SetAttribute(sdDAOSpan, "entityID", input.EntityID)
 
 	}
 
 	sd := &StatusDetail{
 		ID:       uuid.New(),
-		EntityID: entityID,
-		Status:   status,
-		Message:  message,
+		EntityID: input.EntityID,
+		Status:   input.Status,
+		Message:  input.Message,
 		Count:    1,
 	}
 
@@ -210,19 +216,19 @@ func (sdd StatusDetailSQLDAO) CreateFromParams(ctx context.Context, tx *db.Tx, e
 	return sdd.GetByID(ctx, tx, sd.ID)
 }
 
-// UpdateFromParams updates the given StatusDetail with the given parameters
-func (sdd StatusDetailSQLDAO) UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, status string, message *string) (*StatusDetail, error) {
+// Update updates the given StatusDetail with the given parameters
+func (sdd StatusDetailSQLDAO) Update(ctx context.Context, tx *db.Tx, input StatusDetailUpdateInput) (*StatusDetail, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.UpdateFromParams")
+	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.Update")
 	if sdDAOSpan != nil {
 		defer sdDAOSpan.End()
 
-		sdd.tracerSpan.SetAttribute(sdDAOSpan, "id", id.String())
+		sdd.tracerSpan.SetAttribute(sdDAOSpan, "id", input.StatusDetailID.String())
 	}
 
 	sd := &StatusDetail{}
 
-	err := db.GetIDB(tx, sdd.dbSession).NewSelect().Model(sd).Where("id = ?", id).Scan(ctx)
+	err := db.GetIDB(tx, sdd.dbSession).NewSelect().Model(sd).Where("id = ?", input.StatusDetailID).Scan(ctx)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, db.ErrDoesNotExist
@@ -230,7 +236,7 @@ func (sdd StatusDetailSQLDAO) UpdateFromParams(ctx context.Context, tx *db.Tx, i
 		return nil, err
 	}
 
-	if status == "" {
+	if input.Status == "" {
 		return nil, db.ErrInvalidValue
 	}
 
@@ -240,16 +246,20 @@ func (sdd StatusDetailSQLDAO) UpdateFromParams(ctx context.Context, tx *db.Tx, i
 	}
 
 	updatedFields := []string{}
-	if sd.Status != status {
-		upsd.Status = status
+	if sd.Status != input.Status {
+		upsd.Status = input.Status
 		updatedFields = append(updatedFields, "status")
-		sdd.tracerSpan.SetAttribute(sdDAOSpan, "status", status)
+		sdd.tracerSpan.SetAttribute(sdDAOSpan, "status", input.Status)
 	}
 
-	if sd.Message != message {
-		upsd.Message = message
+	messageChanged := (sd.Message == nil) != (input.Message == nil)
+	if sd.Message != nil && input.Message != nil {
+		messageChanged = *sd.Message != *input.Message
+	}
+	if messageChanged {
+		upsd.Message = input.Message
 		updatedFields = append(updatedFields, "message")
-		sdd.tracerSpan.SetAttribute(sdDAOSpan, "message", message)
+		sdd.tracerSpan.SetAttribute(sdDAOSpan, "message", input.Message)
 	}
 
 	if len(updatedFields) == 0 {

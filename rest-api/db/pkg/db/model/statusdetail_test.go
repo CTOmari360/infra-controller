@@ -27,9 +27,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 	type args struct {
 		ctx      context.Context
 		entityid string
-		offset   *int
-		limit    *int
-		orderBy  *paginator.OrderBy
+		page     paginator.PageInput
 	}
 
 	// Create test DB
@@ -87,6 +85,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			args: args{
 				ctx:      ctx,
 				entityid: entityID,
+				page:     paginator.PageInput{},
 			},
 			wantCount:          paginator.DefaultLimit,
 			wantTotalCount:     &totalCount,
@@ -101,7 +100,9 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				entityid: entityID,
-				limit:    cutil.GetPtr(10),
+				page: paginator.PageInput{
+					Limit: cutil.GetPtr(10),
+				},
 			},
 			wantCount:      10,
 			wantTotalCount: &totalCount,
@@ -115,7 +116,9 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				entityid: entityID,
-				offset:   cutil.GetPtr(15),
+				page: paginator.PageInput{
+					Offset: cutil.GetPtr(15),
+				},
 			},
 			wantCount:      15,
 			wantTotalCount: &totalCount,
@@ -129,7 +132,9 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				entityid: entityID,
-				orderBy:  &paginator.OrderBy{Field: "created", Order: paginator.OrderDescending},
+				page: paginator.PageInput{
+					OrderBy: &paginator.OrderBy{Field: "created", Order: paginator.OrderDescending},
+				},
 			},
 			wantCount:           paginator.DefaultLimit,
 			wantFirstEntry:      &sds[totalCount-1], // The last entry would have last timestamp, and would appear first in the list
@@ -143,7 +148,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 
-			got, total, err := sdDAO.GetAllByEntityID(tt.args.ctx, nil, tt.args.entityid, tt.args.offset, tt.args.limit, tt.args.orderBy)
+			got, total, err := sdDAO.GetAllByEntityID(tt.args.ctx, nil, tt.args.entityid, tt.args.page)
 			if tt.wantErr {
 				assert.NotNil(t, err)
 			} else {
@@ -211,9 +216,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 	type args struct {
 		ctx       context.Context
 		entityids []string
-		offset    *int
-		limit     *int
-		orderBy   *paginator.OrderBy
+		page      paginator.PageInput
 	}
 
 	// OTEL Spanner configuration
@@ -278,7 +281,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			args: args{
 				ctx:       context.Background(),
 				entityids: []string{entityID1, entityID2},
-				limit:     cutil.GetPtr(10),
+				page:      paginator.PageInput{Limit: cutil.GetPtr(10)},
 			},
 			wantCount:      10,
 			wantTotalCount: &totalCount,
@@ -292,7 +295,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			args: args{
 				ctx:       context.Background(),
 				entityids: []string{entityID1, entityID2},
-				offset:    cutil.GetPtr(15),
+				page:      paginator.PageInput{Offset: cutil.GetPtr(15)},
 			},
 			wantCount:      15,
 			wantTotalCount: &totalCount,
@@ -306,7 +309,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			args: args{
 				ctx:       context.Background(),
 				entityids: []string{entityID1, entityID2},
-				orderBy:   &paginator.OrderBy{Field: "created", Order: paginator.OrderDescending},
+				page:      paginator.PageInput{OrderBy: &paginator.OrderBy{Field: "created", Order: paginator.OrderDescending}},
 			},
 			wantCount:           paginator.DefaultLimit,
 			wantFirstEntry:      &sds[totalCount-1], // The last entry would have last timestamp, and would appear first in the list
@@ -320,7 +323,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 
-			got, total, err := sdDAO.GetAllByEntityIDs(tt.args.ctx, nil, tt.args.entityids, tt.args.offset, tt.args.limit, tt.args.orderBy)
+			got, total, err := sdDAO.GetAllByEntityIDs(tt.args.ctx, nil, tt.args.entityids, tt.args.page)
 			if tt.wantErr {
 				assert.NotNil(t, err)
 			} else {
@@ -345,17 +348,15 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 	}
 }
 
-func TestStatusDetailSQLDAO_CreateFromParams(t *testing.T) {
+func TestStatusDetailSQLDAO_Create(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
 
 	type args struct {
-		ctx      context.Context
-		tx       *db.Tx
-		entityID string
-		status   string
-		message  *string
+		ctx   context.Context
+		tx    *db.Tx
+		input StatusDetailCreateInput
 	}
 
 	// Create test DB
@@ -391,10 +392,12 @@ func TestStatusDetailSQLDAO_CreateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:      ctx,
-				entityID: sd.EntityID,
-				status:   sd.Status,
-				message:  sd.Message,
+				ctx: ctx,
+				input: StatusDetailCreateInput{
+					EntityID: sd.EntityID,
+					Status:   sd.Status,
+					Message:  sd.Message,
+				},
 			},
 			want:               sd,
 			wantErr:            false,
@@ -407,7 +410,7 @@ func TestStatusDetailSQLDAO_CreateFromParams(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 
-			nsd, err := sdd.CreateFromParams(tt.args.ctx, tt.args.tx, tt.args.entityID, tt.args.status, tt.args.message)
+			nsd, err := sdd.Create(tt.args.ctx, tt.args.tx, tt.args.input)
 			if tt.wantErr {
 				require.NotNil(t, err)
 			} else {
@@ -430,16 +433,14 @@ func TestStatusDetailSQLDAO_CreateFromParams(t *testing.T) {
 	}
 }
 
-func TestStatusDetailSQLDAO_UpdateFromParams(t *testing.T) {
+func TestStatusDetailSQLDAO_Update(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
 
 	type args struct {
-		ctx     context.Context
-		id      uuid.UUID
-		status  string
-		message *string
+		ctx   context.Context
+		input StatusDetailUpdateInput
 	}
 
 	// Create test DB
@@ -491,10 +492,12 @@ func TestStatusDetailSQLDAO_UpdateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:     ctx,
-				id:      sd.ID,
-				status:  usd.Status,
-				message: usd.Message,
+				ctx: ctx,
+				input: StatusDetailUpdateInput{
+					StatusDetailID: sd.ID,
+					Status:         usd.Status,
+					Message:        usd.Message,
+				},
 			},
 			want:               usd,
 			wantErr:            false,
@@ -507,30 +510,30 @@ func TestStatusDetailSQLDAO_UpdateFromParams(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 
-			got, err := sddao.UpdateFromParams(tt.args.ctx, nil, tt.args.id, tt.args.status, tt.args.message)
+			got, err := sddao.Update(tt.args.ctx, nil, tt.args.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("StatusDetailSQLDAO.UpdateFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("StatusDetailSQLDAO.Update() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if got.EntityID != tt.want.EntityID {
-				t.Errorf("StatusDetailSQLDAO.UpdateFromParams() EntityID got = %v, want %v", got.EntityID, tt.want.EntityID)
+				t.Errorf("StatusDetailSQLDAO.Update() EntityID got = %v, want %v", got.EntityID, tt.want.EntityID)
 			}
 
 			if got.Status != tt.want.Status {
-				t.Errorf("StatusDetailSQLDAO.UpdateFromParams() Status got = %v, want %v", got.Status, tt.want.Status)
+				t.Errorf("StatusDetailSQLDAO.Update() Status got = %v, want %v", got.Status, tt.want.Status)
 			}
 
 			if *got.Message != *tt.want.Message {
-				t.Errorf("StatusDetailSQLDAO.UpdateFromParams() Message got = %v, want %v", got.Message, tt.want.Message)
+				t.Errorf("StatusDetailSQLDAO.Update() Message got = %v, want %v", got.Message, tt.want.Message)
 			}
 
 			if got.Count != 2 {
-				t.Errorf("StatusDetailSQLDAO.UpdateFromParams() Count got = %v, want %v", got.Count, 2)
+				t.Errorf("StatusDetailSQLDAO.Update() Count got = %v, want %v", got.Count, 2)
 			}
 
 			if got.Updated.String() == tt.want.Updated.String() {
-				t.Errorf("StatusDetailSQLDAO.UpdateFromParams() Updated = %v, want = %v", got.Updated, tt.want.Updated)
+				t.Errorf("StatusDetailSQLDAO.Update() Updated = %v, want = %v", got.Updated, tt.want.Updated)
 			}
 
 			if tt.verifyChildSpanner {

@@ -215,17 +215,13 @@ func TestInfrastructureProviderSQLDAO_GetAllByOrg(t *testing.T) {
 	}
 }
 
-func TestInfrastructureProviderSQLDAO_CreateFromParams(t *testing.T) {
+func TestInfrastructureProviderSQLDAO_Create(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
 	type args struct {
-		ctx            context.Context
-		name           string
-		displayName    *string
-		org            string
-		orgDisplayName *string
-		createdBy      *User
+		ctx   context.Context
+		input InfrastructureProviderCreateInput
 	}
 
 	// Create test DB
@@ -264,13 +260,13 @@ func TestInfrastructureProviderSQLDAO_CreateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:            ctx,
-				name:           ip.Name,
-				displayName:    ip.DisplayName,
-				org:            ip.Org,
-				orgDisplayName: ip.OrgDisplayName,
-				createdBy: &User{
-					ID: ip.CreatedBy,
+				ctx: ctx,
+				input: InfrastructureProviderCreateInput{
+					Name:           ip.Name,
+					DisplayName:    ip.DisplayName,
+					Org:            ip.Org,
+					OrgDisplayName: ip.OrgDisplayName,
+					CreatedBy:      ip.CreatedBy,
 				},
 			},
 			want:               ip,
@@ -283,9 +279,9 @@ func TestInfrastructureProviderSQLDAO_CreateFromParams(t *testing.T) {
 			ipsd := InfrastructureProviderSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, err := ipsd.CreateFromParams(tt.args.ctx, nil, tt.args.name, tt.args.displayName, tt.args.org, tt.args.orgDisplayName, tt.args.createdBy)
+			got, err := ipsd.Create(tt.args.ctx, nil, tt.args.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.CreateFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("InfrastructureProviderSQLDAO.Create() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -319,16 +315,13 @@ func TestInfrastructureProviderSQLDAO_CreateFromParams(t *testing.T) {
 	}
 }
 
-func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
+func TestInfrastructureProviderSQLDAO_Update(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
 	type args struct {
-		ctx            context.Context
-		id             uuid.UUID
-		name           *string
-		displayName    *string
-		orgDisplayName *string
+		ctx   context.Context
+		input InfrastructureProviderUpdateInput
 	}
 
 	// Create test DB
@@ -384,11 +377,13 @@ func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:            ctx,
-				id:             ip.ID,
-				name:           cutil.GetPtr(uip.Name),
-				displayName:    uip.DisplayName,
-				orgDisplayName: uip.OrgDisplayName,
+				ctx: ctx,
+				input: InfrastructureProviderUpdateInput{
+					InfrastructureProviderID: ip.ID,
+					Name:                     cutil.GetPtr(uip.Name),
+					DisplayName:              uip.DisplayName,
+					OrgDisplayName:           uip.OrgDisplayName,
+				},
 			},
 			want:               uip,
 			wantErr:            false,
@@ -400,9 +395,9 @@ func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
 			ipsd := InfrastructureProviderSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, err := ipsd.UpdateFromParams(tt.args.ctx, nil, tt.args.id, tt.args.name, tt.args.displayName, tt.args.orgDisplayName)
+			got, err := ipsd.Update(tt.args.ctx, nil, tt.args.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.UpdateFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("InfrastructureProviderSQLDAO.Update() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -432,7 +427,7 @@ func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 }
 
-func TestInfrastructureProviderSQLDAO_DeleteByID(t *testing.T) {
+func TestInfrastructureProviderSQLDAO_Delete(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
@@ -493,8 +488,8 @@ func TestInfrastructureProviderSQLDAO_DeleteByID(t *testing.T) {
 			ipsd := InfrastructureProviderSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			if err := ipsd.DeleteByID(tt.args.ctx, nil, tt.args.id); (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.DeleteByID() error = %v, wantErr %v", err, tt.wantErr)
+			if err := ipsd.Delete(tt.args.ctx, nil, tt.args.id); (err != nil) != tt.wantErr {
+				t.Errorf("InfrastructureProviderSQLDAO.Delete() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			dip := &InfrastructureProvider{}

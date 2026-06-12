@@ -622,7 +622,7 @@ func (mst ManageSite) updateSiteStatusInDB(ctx context.Context, tx *cdb.Tx, site
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mst.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, siteID.String(), *status, statusMessage)
+		_, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: siteID.String(), Status: *status, Message: statusMessage})
 		if err != nil {
 			return err
 		}
