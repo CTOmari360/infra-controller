@@ -905,7 +905,7 @@ func TestGetUnallocatedMachineForInstanceType(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s, err := GetUnallocatedMachineForInstanceType(ctx, tx, dbSession, tc.instancetype)
+			s, err := GetUnallocatedMachineForInstanceType(ctx, zerolog.Nop(), tx, dbSession, tc.instancetype, nil)
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err == nil {
 				assert.NotNil(t, s)
@@ -2089,7 +2089,7 @@ func TestMatchInstanceTypeCapabilitiesForMachines(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m, mid, err := MatchInstanceTypeCapabilitiesForMachines(ctx, tc.logger, tc.dbSession, tc.instanceTypeID, tc.machineIDs)
+			m, mid, err := MatchInstanceTypeCapabilitiesForMachines(ctx, tc.logger, tc.dbSession, tc.instanceTypeID, tc.machineIDs, nil)
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err == nil {
 				assert.Equal(t, tc.expectMatch, m)
