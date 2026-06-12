@@ -177,6 +177,21 @@ pub(crate) fn set_dynamic_config(
                 .tracing_enabled
                 .store(enable, Ordering::Relaxed);
         }
+        rpc::ConfigSetting::RestartOvsOnUseAdminNetworkChange => {
+            let enable = req.value.parse().map_err(|_| {
+                CarbideError::InvalidArgument(format!(
+                    "Expected bool for RestartOvsOnUseAdminNetworkChange, got {}",
+                    &req.value
+                ))
+            })?;
+            api.dynamic_settings
+                .restart_ovs_on_use_admin_network_change
+                .store(enable, Ordering::Relaxed);
+            tracing::info!(
+                "restart_ovs_on_use_admin_network_change updated to '{}'",
+                req.value
+            );
+        }
     }
     Ok(Response::new(()))
 }

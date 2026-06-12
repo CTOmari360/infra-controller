@@ -170,6 +170,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // and keep it on admin. This prevents the host from using the DPU at all.
     let use_admin_network = snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
+    let use_admin_network_changed = dpu_snapshot.network_config.use_admin_network_changed;
+
     let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
     let mut use_fnn_over_admin_nw = false;
@@ -743,7 +745,40 @@ pub(crate) async fn get_managed_host_network_config_inner(
             },
             None => None,
         },
+        use_admin_network_changed,
     };
+
+    // Clear use_admin_network_changed after response assembly succeeds so we
+    // don't lose the fire-once signal on mid-request failures.
+    if use_admin_network_changed == Some(true) {
+        tracing::info!(
+            "Sent use_admin_network_changed 'true' for dpu {}, reset the flag in the database.",
+            &dpu_machine_id
+        );
+        if let Ok(mut clear_txn) = api.txn_begin().await {
+            if let Err(err) =
+                db::machine::set_use_admin_network_changed(&mut clear_txn, &dpu_machine_id, false)
+                    .await
+            {
+                tracing::warn!(
+                    %dpu_machine_id,
+                    %err,
+                    "Failed to clear use_admin_network_changed; will retry on next poll"
+                );
+            } else if let Err(err) = clear_txn.commit().await {
+                tracing::warn!(
+                    %dpu_machine_id,
+                    %err,
+                    "Failed to commit use_admin_network_changed clear; will retry on next poll"
+                );
+            }
+        } else {
+            tracing::warn!(
+                %dpu_machine_id,
+                "Failed to open transaction to clear use_admin_network_changed; will retry on next poll"
+            );
+        }
+    }
 
     // If this all worked, we shouldn't emit a log line
     tracing::Span::current().record("logfmt.suppress", true);
@@ -1373,6 +1408,7 @@ mod consolidated_network_config_tests {
             // top-level response field, not in this consolidated struct.
             use_admin_network: Some(false),
             quarantine_state: None,
+            use_admin_network_changed: None,
         };
         let consolidated = build_consolidated_network_config(&host, dpu_ip());
         assert_eq!(

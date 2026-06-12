@@ -3079,6 +3079,7 @@ mod tests {
             stateful_acls_enabled: true,
             instance: None,
             dpu_extension_services: vec![],
+            use_admin_network_changed: None,
         }
     }
 
@@ -3571,6 +3572,7 @@ mod tests {
             stateful_acls_enabled: true,
             instance: None,
             dpu_extension_services: vec![],
+            use_admin_network_changed: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;
@@ -3758,6 +3760,7 @@ mod tests {
             stateful_acls_enabled: false,
             instance: None,
             dpu_extension_services: vec![],
+            use_admin_network_changed: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;

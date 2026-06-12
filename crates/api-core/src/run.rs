@@ -176,6 +176,10 @@ pub async fn run(
         bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: tconf.tracing_enabled,
         log_stream: tconf.log_stream,
+        restart_ovs_on_use_admin_network_change: carbide_config
+            .site_explorer
+            .restart_ovs_on_use_admin_network_change
+            .clone(),
     };
     dynamic_settings.start_reset_task(
         &mut join_set,

@@ -45,6 +45,9 @@ pub struct DynamicSettings {
 
     /// Log stream used to feed the admin web UI.
     pub log_stream: crate::logging::stream::LogStream,
+
+    /// Restart OVS on DPU agents when admin network configuration changes
+    pub restart_ovs_on_use_admin_network_change: Arc<AtomicBool>,
 }
 
 /// How often to check if the log filter (RUST_LOG) needs resetting

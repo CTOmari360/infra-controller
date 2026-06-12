@@ -902,6 +902,17 @@ impl MainLoop {
                 )
                 .await;
                 self.seen_blank = false;
+
+                // Restart the OVS if we did a switch to or from admin network.
+                // This is needed on DPU OS to make sure OVS picks up the
+                // change and properly applies the correct bridging
+                // configuration for the admin network.
+                if conf.use_admin_network_changed.unwrap_or_default() {
+                    tracing::info!("Restart OVS because use_admin_network_changed is set to true");
+                    if let Err(err) = crate::ovs::restart_ovs().await {
+                        tracing::warn!(%err, "Ignoring failure to restart OVS after admin network change");
+                    }
+                }
             }
             None => {
                 // No network config means server can't find the DPU, usually because it was

@@ -896,6 +896,22 @@ pub struct Machine {
 
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
+
+    pub restart_ovs_on_use_admin_network_change: RestartOvsOnUseAdminNetworkChange,
+}
+
+/// Per-machine policy for restarting OVS when the host switches between
+/// admin and tenant networking.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartOvsOnUseAdminNetworkChange {
+    /// Defer to the site-level config setting.
+    #[default]
+    None,
+    /// Always restart OVS for this machine (overrides site config).
+    Enable,
+    /// Never restart OVS for this machine (overrides site config and enable).
+    ForceDisable,
 }
 
 // Dpf status field.

@@ -928,6 +928,7 @@ service Forge {
   rpc NmxcBrowse(NmxcBrowseRequest) returns (NmxcBrowseResponse);
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
+  rpc SetRestartOvsOnAdminNetworkChange(SetRestartOvsOnAdminNetworkChangeRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
   // Curated snapshot of DPF CRs (DPUNode + DPUDevices + DPUs) for one host.
   rpc GetDPFHostSnapshot(GetDPFHostSnapshotRequest) returns (DPFHostSnapshotResponse);
@@ -1406,6 +1407,7 @@ message RuntimeConfig {
 
   string compile_time_helm_version = 51;
   string compile_time_docker_version = 52;
+  bool restart_ovs_on_use_admin_network_change = 53;
 }
 
 message EchoRequest {
@@ -4239,6 +4241,11 @@ message ManagedHostNetworkConfigResponse {
   // The password the DPU should use when configuring a
   // BGP session with the its TOR
   optional string bgp_leaf_session_password = 118;
+
+  // When true, the DPU agent should restart openvswitch-switch to pick up
+  // the change in admin vs tenant network configuration. The server clears
+  // this flag after sending it once (fire-once delivery).
+  optional bool use_admin_network_changed = 119;
 }
 
 message TrafficInterceptConfig {
@@ -5425,6 +5432,7 @@ enum ConfigSetting {
   BMC_PROXY = 2;
   TRACING_ENABLED = 3;
   SITE_EXPLORER_ENABLED = 4;
+  RESTART_OVS_ON_USE_ADMIN_NETWORK_CHANGE = 5;
 }
 
 message FindIpAddressRequest {
@@ -8260,6 +8268,11 @@ message MachinePositionInfo {
 message ModifyDPFStateRequest {
   common.MachineId machine_id = 1;
   bool dpf_enabled = 2;
+}
+
+message SetRestartOvsOnAdminNetworkChangeRequest {
+  common.MachineId machine_id = 1;
+  string value = 2;
 }
 
 message DPFStateResponse {

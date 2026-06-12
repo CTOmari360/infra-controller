@@ -17,6 +17,8 @@
 
 #[cfg(any(test, feature = "test-support"))]
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use model::machine::HostHealthConfig;
 use serde::{Deserialize, Serialize};
@@ -47,6 +49,7 @@ pub struct MachineStateHandlerSiteConfig {
     pub spdm_enabled: bool,
 
     pub dpu_enable_secure_boot: bool,
+    pub restart_ovs_on_use_admin_network_change: Arc<AtomicBool>,
 }
 
 impl MachineStateHandlerSiteConfig {

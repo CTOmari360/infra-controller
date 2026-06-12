@@ -36,7 +36,8 @@ use crate::machine::spx::MachineSpxStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
     Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    MachineLastRebootRequested, ManagedHostState, ReprovisionRequest,
+    RestartOvsOnUseAdminNetworkChange, UpgradeDecision,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -113,6 +114,8 @@ pub struct MachineSnapshotPgJson {
     pub slot_number: Option<i32>,
     #[serde(default)]
     pub tray_index: Option<i32>,
+    #[serde(default)]
+    pub restart_ovs_on_use_admin_network_change: RestartOvsOnUseAdminNetworkChange,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -221,6 +224,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             rack_fw_details: value.rack_fw_details,
             slot_number: value.slot_number,
             tray_index: value.tray_index,
+            restart_ovs_on_use_admin_network_change: value.restart_ovs_on_use_admin_network_change,
         })
     }
 }

@@ -865,3 +865,35 @@ pub(crate) async fn update_machine_nv_link_info(
 
     Ok(tonic::Response::new(()))
 }
+
+pub(crate) async fn set_restart_ovs_on_admin_network_change(
+    api: &Api,
+    request: Request<rpc::SetRestartOvsOnAdminNetworkChangeRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+    let request = request.get_ref();
+    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+    log_machine_id(&machine_id);
+
+    if !machine_id.machine_type().is_host() {
+        return Err(Status::invalid_argument(format!(
+            "machine_id '{}' must be a host machine ID",
+            machine_id
+        )));
+    }
+
+    let valid_values = ["enable", "none", "force_disable"];
+    if !valid_values.contains(&request.value.as_str()) {
+        return Err(Status::invalid_argument(format!(
+            "Invalid value '{}'. Must be one of: enable, none, force_disable",
+            request.value
+        )));
+    }
+
+    let mut txn = api.txn_begin().await?;
+    db::machine::set_restart_ovs_on_use_admin_network_change(&mut txn, &machine_id, &request.value)
+        .await?;
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}

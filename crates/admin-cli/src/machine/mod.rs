@@ -25,6 +25,7 @@ pub mod network;
 pub mod nvlink_info;
 pub mod positions;
 pub mod reboot;
+pub mod restart_ovs;
 pub mod show;
 
 #[cfg(test)]
@@ -78,4 +79,9 @@ pub enum Cmd {
     Positions(positions::Args),
     #[clap(subcommand, about = "Update/show NVLink info for an MNNVL machine")]
     NvlinkInfo(nvlink_info::Args),
+    #[clap(
+        name = "restart-ovs-on-use-admin-network-change",
+        about = "Set OVS restart on admin network change for a machine"
+    )]
+    RestartOvs(restart_ovs::Args),
 }

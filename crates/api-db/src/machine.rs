@@ -1334,6 +1334,27 @@ pub async fn try_update_network_config(
     }
 }
 
+/// Sets or clears the `use_admin_network_changed` flag on a single machine
+/// row without bumping `network_config_version` or fanning out to the group.
+pub async fn set_use_admin_network_changed(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    value: bool,
+) -> Result<(), DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', $1::jsonb)
+        WHERE id = $2
+    "#;
+    sqlx::query(query)
+        .bind(sqlx::types::Json(value))
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
 /// Replaces predicted host id with stable host id.
 /// Once forge receives DiscoveryData from Host, forge can create StableMachineId.
 /// This StableMachineId must replace existing PredictedHostId in db.
@@ -2602,6 +2623,23 @@ pub async fn modify_dpf_state(
     let query = "UPDATE machines set dpf = jsonb_set(dpf, '{enabled}', to_jsonb($1)) WHERE id=$2";
     sqlx::query(query)
         .bind(status)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn set_restart_ovs_on_use_admin_network_change(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    value: &str,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET restart_ovs_on_use_admin_network_change = $1 WHERE id = $2";
+
+    sqlx::query(query)
+        .bind(value)
         .bind(machine_id)
         .execute(txn)
         .await

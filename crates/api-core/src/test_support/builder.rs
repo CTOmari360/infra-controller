@@ -235,6 +235,10 @@ impl TestApiBuilder {
             create_machines: runtime_config.site_explorer.create_machines.clone(),
             bmc_proxy: runtime_config.site_explorer.bmc_proxy.clone(),
             tracing_enabled: Arc::new(runtime_config.tracing.enabled.into()),
+            restart_ovs_on_use_admin_network_change: runtime_config
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .clone(),
             log_stream: Default::default(),
         };
 

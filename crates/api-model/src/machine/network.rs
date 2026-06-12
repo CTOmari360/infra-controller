@@ -154,6 +154,7 @@ pub struct ManagedHostNetworkConfig {
     /// merging in DPU-specific configs.
     pub use_admin_network: Option<bool>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
+    pub use_admin_network_changed: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +193,7 @@ impl Default for ManagedHostNetworkConfig {
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
+            use_admin_network_changed: None,
         }
     }
 }
@@ -324,8 +326,74 @@ mod tests {
     // pair the original tests asserted. Covers legacy IPv4 JSON and IPv6 JSON.
     #[test]
     fn test_managed_host_network_config_deserialize_json() {
+<<<<<<< HEAD
         scenarios!(
             run = |json| {
+||||||| parent of 77fb23cce (forge 7451: add option and ability to restart ovs on switching to and from admin-network)
+        check_cases(
+            [
+                Case {
+                    scenario: "legacy ipv4 json",
+                    input: r#"{
+                        "loopback_ip": "10.0.0.1",
+                        "secondary_overlay_vtep_ip": "172.16.0.5",
+                        "use_admin_network": true,
+                        "quarantine_state": null
+                    }"#,
+                    expect: Yields((
+                        Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                        Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                    )),
+                },
+                Case {
+                    scenario: "ipv6 json",
+                    input: r#"{
+                        "loopback_ip": "2001:db8::1",
+                        "secondary_overlay_vtep_ip": null,
+                        "use_admin_network": true,
+                        "quarantine_state": null
+                    }"#,
+                    expect: Yields((
+                        Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+                        None,
+                    )),
+                },
+            ],
+            |json| {
+=======
+        check_cases(
+            [
+                Case {
+                    scenario: "legacy ipv4 json",
+                    input: r#"{
+                        "loopback_ip": "10.0.0.1",
+                        "secondary_overlay_vtep_ip": "172.16.0.5",
+                        "use_admin_network": true,
+                        "quarantine_state": null,
+			"use_admin_network_changed": null,
+                    }"#,
+                    expect: Yields((
+                        Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                        Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                    )),
+                },
+                Case {
+                    scenario: "ipv6 json",
+                    input: r#"{
+                        "loopback_ip": "2001:db8::1",
+                        "secondary_overlay_vtep_ip": null,
+                        "use_admin_network": true,
+                        "quarantine_state": null,
+			"use_admin_network_changed": null,
+                    }"#,
+                    expect: Yields((
+                        Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+                        None,
+                    )),
+                },
+            ],
+            |json| {
+>>>>>>> 77fb23cce (forge 7451: add option and ability to restart ovs on switching to and from admin-network)
                 serde_json::from_str::<ManagedHostNetworkConfig>(json)
                     .map(|c| (c.loopback_ip, c.secondary_overlay_vtep_ip))
                     .map_err(drop)
@@ -367,6 +435,7 @@ mod tests {
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
+            use_admin_network_changed: None,
         };
         let json = serde_json::to_string(&config).unwrap();
         // Ensure IpAddr serializes IPv4 same as Ipv4Addr.
@@ -380,6 +449,7 @@ mod tests {
     // round-trip test.
     #[test]
     fn test_managed_host_network_config_default() {
+<<<<<<< HEAD
         let default = ManagedHostNetworkConfig::default();
         value_scenarios!(
             run = |ip| ip;
@@ -403,6 +473,20 @@ mod tests {
             expect: None,
         }
         .check(|qs| qs);
+||||||| parent of 77fb23cce (forge 7451: add option and ability to restart ovs on switching to and from admin-network)
+        let config = ManagedHostNetworkConfig::default();
+        assert_eq!(config.loopback_ip, None);
+        assert_eq!(config.secondary_overlay_vtep_ip, None);
+        assert_eq!(config.use_admin_network, Some(true));
+        assert_eq!(config.quarantine_state, None);
+=======
+        let config = ManagedHostNetworkConfig::default();
+        assert_eq!(config.loopback_ip, None);
+        assert_eq!(config.secondary_overlay_vtep_ip, None);
+        assert_eq!(config.use_admin_network, Some(true));
+        assert_eq!(config.quarantine_state, None);
+        assert_eq!(config.use_admin_network_changed, None);
+>>>>>>> 77fb23cce (forge 7451: add option and ability to restart ovs on switching to and from admin-network)
     }
 
     // ManagedHostQuarantineState::reason_str() returns the reason or an empty

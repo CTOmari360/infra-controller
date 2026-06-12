@@ -775,6 +775,10 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
+            restart_ovs_on_use_admin_network_change: self
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .clone(),
         }
     }
 }
@@ -2273,6 +2277,10 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             dpf_enabled: value.dpf.enabled,
             compile_time_helm_version: crate::dpf_services::COMPILE_TIME_HELM_VERSION.to_string(),
             compile_time_docker_version: crate::dpf_services::COMPILE_TIME_IMAGE_TAG.to_string(),
+            restart_ovs_on_use_admin_network_change: value
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -2876,6 +2884,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_mode: None,
+                restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3072,6 +3081,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_mode: None,
+                restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3416,6 +3426,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_mode: None,
+                restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
