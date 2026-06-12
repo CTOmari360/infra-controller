@@ -24,6 +24,9 @@ use carbide_rack::firmware_update::{
     RackFirmwareInventory, RackSwitchFirmwareInventory, build_new_node_info,
     firmware_type_for_profile, load_rack_firmware_inventory, load_rack_switch_firmware_inventory,
 };
+use carbide_rack::node_type::{
+    DEFAULT_COMPUTE_NODE_TYPE, DEFAULT_SWITCH_NODE_TYPE, switch_node_type_for_topology,
+};
 use carbide_rack::rack_manager_error;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack_controller::config::RmsConfig;
@@ -443,7 +446,7 @@ fn build_switch_device_info_request(
         nodes: Some(rms::NodeSet {
             nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .map(|switch| build_new_node_info(rack_id, switch, DEFAULT_SWITCH_NODE_TYPE))
                 .collect(),
         }),
     }
@@ -479,7 +482,7 @@ fn rms_component_filters_from_components(
     let mut filters = std::collections::HashMap::new();
     if include_machines {
         filters.insert(
-            rms::NodeType::Compute as i32,
+            DEFAULT_COMPUTE_NODE_TYPE as i32,
             rms::FirmwareObjectComponentFilter {
                 components: components.to_vec(),
             },
@@ -487,7 +490,7 @@ fn rms_component_filters_from_components(
     }
     if include_switches {
         filters.insert(
-            rms::NodeType::Switch as i32,
+            DEFAULT_SWITCH_NODE_TYPE as i32,
             rms::FirmwareObjectComponentFilter {
                 components: components.to_vec(),
             },
@@ -554,20 +557,20 @@ async fn rms_start_firmware_upgrade_from_json(
         request
             .machines
             .iter()
-            .map(|device| build_new_node_info(request.rack_id, device, rms::NodeType::Compute)),
+            .map(|device| build_new_node_info(request.rack_id, device, DEFAULT_COMPUTE_NODE_TYPE)),
     );
     nodes.extend(
         request
             .switches
             .iter()
-            .map(|device| build_new_node_info(request.rack_id, device, rms::NodeType::Switch)),
+            .map(|device| build_new_node_info(request.rack_id, device, DEFAULT_SWITCH_NODE_TYPE)),
     );
 
     let response = rms_client
         .apply_firmware_object(rms::ApplyFirmwareObjectRequest {
             rack_id: request.rack_id.to_string(),
             config_json: request.config_json.to_string(),
-            access_token: request.access_token.to_string(),
+            access_token: Some(request.access_token.to_string()),
             firmware_type: request.firmware_type.to_string(),
             hardware_type: request.hardware_type.to_string(),
             nodes: Some(rms::NodeSet { nodes }),
@@ -853,7 +856,7 @@ async fn rms_start_nvos_update(
     let started_at = chrono::Utc::now();
     let nodes: Vec<_> = switches
         .iter()
-        .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+        .map(|switch| build_new_node_info(rack_id, switch, DEFAULT_SWITCH_NODE_TYPE))
         .collect();
     let nodes = Some(rms::NodeSet { nodes });
     let NvosUpdateSource {
@@ -864,7 +867,7 @@ async fn rms_start_nvos_update(
         .apply_switch_system_image(rms::ApplySwitchSystemImageRequest {
             rack_id: rack_id.to_string(),
             config_json: config_json.to_string(),
-            access_token: access_token.to_string(),
+            access_token: Some(access_token.to_string()),
             software_type: software_type.to_string(),
             hardware_type: hardware_type.to_string(),
             nodes,
@@ -1802,7 +1805,7 @@ pub async fn handle_maintenance(
                                 .switches
                                 .iter()
                                 .map(|switch| {
-                                    build_new_node_info(id, switch, rms::NodeType::Switch)
+                                    build_new_node_info(id, switch, DEFAULT_SWITCH_NODE_TYPE)
                                 })
                                 .collect(),
                         }),
@@ -1994,7 +1997,7 @@ pub async fn handle_maintenance(
                         node: Some(build_new_node_info(
                             id,
                             &primary_switch.device,
-                            rms::NodeType::Switch,
+                            switch_node_type_for_topology(rack_hardware_topology),
                         )),
                         topology_type: topology_type.clone(),
                     })

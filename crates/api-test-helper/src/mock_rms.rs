@@ -200,15 +200,18 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::UpgradeSwitchFirmwareResponse, RackManagerError>>>,
     upgrade_switch_firmware_calls: Mutex<Vec<rms::UpgradeSwitchFirmwareRequest>>,
 
+    // Switch certificate calls.
+    configure_switch_certificate_responses:
+        Mutex<VecDeque<Result<rms::ConfigureSwitchCertificateResponse, RackManagerError>>>,
+    configure_switch_certificate_calls: Mutex<Vec<rms::ConfigureSwitchCertificateRequest>>,
+
+    get_configure_switch_certificate_job_status_responses: Mutex<
+        VecDeque<Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError>>,
+    >,
+    get_configure_switch_certificate_job_status_calls:
+        Mutex<Vec<rms::GetConfigureSwitchCertificateJobStatusRequest>>,
+
     // Switch system images calls.
-    fetch_switch_system_image_responses:
-        Mutex<VecDeque<Result<rms::FetchSwitchSystemImageResponse, RackManagerError>>>,
-    fetch_switch_system_image_calls: Mutex<Vec<rms::FetchSwitchSystemImageRequest>>,
-
-    install_switch_system_image_responses:
-        Mutex<VecDeque<Result<rms::InstallSwitchSystemImageResponse, RackManagerError>>>,
-    install_switch_system_image_calls: Mutex<Vec<rms::InstallSwitchSystemImageRequest>>,
-
     list_switch_system_images_responses:
         Mutex<VecDeque<Result<rms::ListSwitchSystemImagesResponse, RackManagerError>>>,
     list_switch_system_images_calls: Mutex<Vec<rms::ListSwitchSystemImagesRequest>>,
@@ -338,10 +341,10 @@ impl MockRmsApi {
             push_switch_firmware_calls: Default::default(),
             upgrade_switch_firmware_responses: Default::default(),
             upgrade_switch_firmware_calls: Default::default(),
-            fetch_switch_system_image_responses: Default::default(),
-            fetch_switch_system_image_calls: Default::default(),
-            install_switch_system_image_responses: Default::default(),
-            install_switch_system_image_calls: Default::default(),
+            configure_switch_certificate_responses: Default::default(),
+            configure_switch_certificate_calls: Default::default(),
+            get_configure_switch_certificate_job_status_responses: Default::default(),
+            get_configure_switch_certificate_job_status_calls: Default::default(),
             list_switch_system_images_responses: Default::default(),
             list_switch_system_images_calls: Default::default(),
             poll_switch_firmware_job_status_responses: Default::default(),
@@ -668,23 +671,25 @@ impl MockRmsApi {
         rms::UpgradeSwitchFirmwareResponse
     );
 
+    // Switch certificate
+    impl_enqueue_inspect!(
+        enqueue_configure_switch_certificate,
+        configure_switch_certificate_calls,
+        configure_switch_certificate_responses,
+        configure_switch_certificate_calls,
+        rms::ConfigureSwitchCertificateRequest,
+        rms::ConfigureSwitchCertificateResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_get_configure_switch_certificate_job_status,
+        get_configure_switch_certificate_job_status_calls,
+        get_configure_switch_certificate_job_status_responses,
+        get_configure_switch_certificate_job_status_calls,
+        rms::GetConfigureSwitchCertificateJobStatusRequest,
+        rms::GetConfigureSwitchCertificateJobStatusResponse
+    );
+
     // Switch system images
-    impl_enqueue_inspect!(
-        enqueue_fetch_switch_system_image,
-        fetch_switch_system_image_calls,
-        fetch_switch_system_image_responses,
-        fetch_switch_system_image_calls,
-        rms::FetchSwitchSystemImageRequest,
-        rms::FetchSwitchSystemImageResponse
-    );
-    impl_enqueue_inspect!(
-        enqueue_install_switch_system_image,
-        install_switch_system_image_calls,
-        install_switch_system_image_responses,
-        install_switch_system_image_calls,
-        rms::InstallSwitchSystemImageRequest,
-        rms::InstallSwitchSystemImageResponse
-    );
     impl_enqueue_inspect!(
         enqueue_list_switch_system_images,
         list_switch_system_images_calls,
@@ -977,6 +982,44 @@ impl MockRmsApi {
         state: &str,
     ) -> rms::GetSwitchSystemImageJobStatusResponse {
         rms::GetSwitchSystemImageJobStatusResponse {
+            status: rms::ReturnCode::Success as i32,
+            state: state.to_owned(),
+            ..Default::default()
+        }
+    }
+
+    /// Success response for `configure_switch_certificate` with a child job ID.
+    pub fn configure_switch_certificate_ok(
+        node_id: &str,
+        job_id: &str,
+    ) -> rms::ConfigureSwitchCertificateResponse {
+        rms::ConfigureSwitchCertificateResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                }),
+                node_results: vec![rms::NodeOperationResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Success as i32,
+                    error_message: String::new(),
+                }],
+                ..Default::default()
+            }),
+            jobs: vec![rms::ConfigureSwitchCertificateJobInfo {
+                node_id: node_id.to_owned(),
+                job_id: job_id.to_owned(),
+            }],
+        }
+    }
+
+    /// Success response for `get_configure_switch_certificate_job_status`.
+    pub fn configure_switch_certificate_job_status_ok(
+        state: &str,
+    ) -> rms::GetConfigureSwitchCertificateJobStatusResponse {
+        rms::GetConfigureSwitchCertificateJobStatusResponse {
             status: rms::ReturnCode::Success as i32,
             state: state.to_owned(),
             ..Default::default()
@@ -1344,22 +1387,30 @@ impl RmsApi for MockRmsApi {
         self.upgrade_switch_firmware_calls.lock().await.push(cmd);
         pop_or_err(&mut self.upgrade_switch_firmware_responses.lock().await)
     }
-    async fn fetch_switch_system_image(
+    async fn configure_switch_certificate(
         &self,
-        cmd: rms::FetchSwitchSystemImageRequest,
-    ) -> Result<rms::FetchSwitchSystemImageResponse, RackManagerError> {
-        self.fetch_switch_system_image_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.fetch_switch_system_image_responses.lock().await)
-    }
-    async fn install_switch_system_image(
-        &self,
-        cmd: rms::InstallSwitchSystemImageRequest,
-    ) -> Result<rms::InstallSwitchSystemImageResponse, RackManagerError> {
-        self.install_switch_system_image_calls
+        cmd: rms::ConfigureSwitchCertificateRequest,
+    ) -> Result<rms::ConfigureSwitchCertificateResponse, RackManagerError> {
+        self.configure_switch_certificate_calls
             .lock()
             .await
             .push(cmd);
-        pop_or_err(&mut self.install_switch_system_image_responses.lock().await)
+        pop_or_err(&mut self.configure_switch_certificate_responses.lock().await)
+    }
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        cmd: rms::GetConfigureSwitchCertificateJobStatusRequest,
+    ) -> Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError> {
+        self.get_configure_switch_certificate_job_status_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(
+            &mut self
+                .get_configure_switch_certificate_job_status_responses
+                .lock()
+                .await,
+        )
     }
     async fn list_switch_system_images(
         &self,

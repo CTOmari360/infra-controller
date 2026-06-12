@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use carbide_rack::firmware_update::build_new_node_info;
+use carbide_rack::node_type::DEFAULT_SWITCH_NODE_TYPE;
 use carbide_rack_controller::config::RmsConfig;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
@@ -61,7 +62,7 @@ fn build_scale_up_fabric_services_status_request(
         nodes: Some(rms::NodeSet {
             nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .map(|switch| build_new_node_info(rack_id, switch, DEFAULT_SWITCH_NODE_TYPE))
                 .collect(),
         }),
     }

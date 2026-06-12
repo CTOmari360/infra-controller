@@ -1461,7 +1461,7 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
     let requests = env.rms_sim.submitted_apply_firmware_object_requests().await;
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].config_json, r#"{"Id":"fw-json"}"#);
-    assert_eq!(requests[0].access_token, "token");
+    assert_eq!(requests[0].access_token.as_deref(), Some("token"));
     assert_eq!(requests[0].firmware_type, "prod");
     assert!(requests[0].force_update);
     assert_eq!(requests[0].nodes.as_ref().unwrap().nodes.len(), 1);
@@ -2108,7 +2108,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
         "NVOSUpdate(Start) should submit ApplySwitchSystemImage"
     );
     assert_eq!(requests[0].config_json, r#"{"Id":"fw-nvos-default"}"#);
-    assert_eq!(requests[0].access_token, "token");
+    assert_eq!(requests[0].access_token.as_deref(), Some("token"));
     let mut txn = pool.acquire().await?;
     let switch = db_switch::find_by_id(&mut txn, &switch_id)
         .await?

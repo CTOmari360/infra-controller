@@ -10,7 +10,9 @@ use sqlx::PgPool;
 use crate::compute_tray_manager::{Backend, ComputeTrayManager};
 use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
-use crate::nv_switch_manager::NvSwitchManager;
+use crate::nv_switch_manager::{
+    ConfigureSwitchCertificateJobStatus, NvSwitchManager, SwitchEndpoint,
+};
 use crate::power_shelf_manager::PowerShelfManager;
 use crate::rms::RmsSwitchSystemImageStatusApi;
 
@@ -38,6 +40,25 @@ pub struct ComponentManager {
 }
 
 impl ComponentManager {
+    pub async fn configure_switch_certificate(
+        &self,
+        endpoint: &SwitchEndpoint,
+        domain_name: &str,
+    ) -> Result<String, ComponentManagerError> {
+        self.nv_switch
+            .configure_switch_certificate(endpoint, domain_name)
+            .await
+    }
+
+    pub async fn get_configure_switch_certificate_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
+        self.nv_switch
+            .get_configure_switch_certificate_job_status(job_id)
+            .await
+    }
+
     pub fn new(
         nv_switch: Arc<dyn NvSwitchManager>,
         power_shelf: Arc<dyn PowerShelfManager>,
@@ -96,9 +117,10 @@ pub async fn build_component_manager(
                 client,
                 rms_switch_system_image_client.clone(),
                 db,
+                config.effective_switch_mtls_services(),
             ))
         }
-        "mock" => Arc::new(crate::mock::MockNvSwitchManager),
+        "mock" => Arc::new(crate::mock::MockNvSwitchManager::default()),
         other => {
             return Err(ComponentManagerError::InvalidArgument(format!(
                 "unknown nv_switch_backend: {other}"
@@ -134,6 +156,7 @@ pub async fn build_component_manager(
                 client,
                 rms_switch_system_image_client.clone(),
                 db,
+                config.effective_switch_mtls_services(),
             ))
         }
         "mock" => Arc::new(crate::mock::MockPowerShelfManager),
@@ -160,6 +183,7 @@ pub async fn build_component_manager(
                 client,
                 rms_switch_system_image_client.clone(),
                 db,
+                config.effective_switch_mtls_services(),
             ))
         }
         Backend::Core => {

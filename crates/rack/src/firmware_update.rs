@@ -226,7 +226,7 @@ pub fn build_new_node_info(
         })
     };
 
-    let host_endpoint = if matches!(node_type, rms::NodeType::Switch) {
+    let host_endpoint = if crate::node_type::is_switch_node_type(node_type) {
         Some(rms::Endpoint {
             interface: build_host_interface(device),
             port: 0,

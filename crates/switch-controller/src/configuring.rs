@@ -19,12 +19,16 @@
 
 use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_uuid::switch::SwitchId;
-use model::switch::{ConfiguringState, Switch, SwitchControllerState, ValidatingState};
+use model::component_manager::ConfigureSwitchCertificateState;
+use model::switch::{
+    ConfigureCertificateState, ConfiguringState, Switch, SwitchControllerState, ValidatingState,
+};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 use crate::context::SwitchStateHandlerContextObjects;
+use crate::endpoint;
 
 /// Handles the Configuring state for a switch.
 pub async fn handle_configuring(
@@ -33,11 +37,14 @@ pub async fn handle_configuring(
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
     let config_state = match &state.controller_state.value {
-        SwitchControllerState::Configuring { config_state } => config_state,
+        SwitchControllerState::Configuring { config_state } => config_state.clone(),
         _ => unreachable!("handle_configuring called with non-Configuring state"),
     };
 
     match config_state {
+        ConfiguringState::ConfigureCertificate {
+            configure_certificate,
+        } => handle_configure_certificate(switch_id, state, ctx, configure_certificate).await,
         ConfiguringState::RotateOsPassword => {
             handle_rotate_os_password(switch_id, state, ctx).await
         }
@@ -133,4 +140,146 @@ async fn handle_rotate_os_password(
             validating_state: ValidatingState::ValidationComplete,
         },
     ))
+}
+
+async fn handle_configure_certificate(
+    switch_id: &SwitchId,
+    state: &mut Switch,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    configure_certificate: ConfigureCertificateState,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match configure_certificate {
+        ConfigureCertificateState::Start => {
+            handle_configure_certificate_start(switch_id, state, ctx).await
+        }
+        ConfigureCertificateState::WaitForComplete { job_id } => {
+            handle_configure_certificate_wait_for_complete(switch_id, ctx, &job_id).await
+        }
+    }
+}
+
+async fn handle_configure_certificate_start(
+    switch_id: &SwitchId,
+    state: &Switch,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    let Some(_rack_id) = state.rack_id.as_ref() else {
+        tracing::info!(
+            "Switch {:?}: no rack association, skipping certificate configuration",
+            switch_id
+        );
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Configuring {
+                config_state: ConfiguringState::RotateOsPassword,
+            },
+        ));
+    };
+    let domain_name = "site-wide".to_string();
+
+    let Some(component_manager) = ctx.services.component_manager.as_ref() else {
+        tracing::info!(
+            "Switch {:?}: component manager is not configured, skipping certificate configuration",
+            switch_id
+        );
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Configuring {
+                config_state: ConfiguringState::RotateOsPassword,
+            },
+        ));
+    };
+
+    if state.bmc_mac_address.is_none() {
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Error {
+                cause: "No BMC MAC address on switch".to_string(),
+            },
+        ));
+    }
+
+    let endpoint = endpoint::resolve_switch_endpoint(
+        switch_id,
+        &ctx.services.db_pool,
+        &ctx.services.credential_manager,
+    )
+    .await?;
+    let job_id = component_manager
+        .configure_switch_certificate(&endpoint, &domain_name)
+        .await
+        .map_err(|error| {
+            StateHandlerError::GenericError(eyre::eyre!(
+                "Switch {:?}: failed to start switch certificate configuration: {}",
+                switch_id,
+                error
+            ))
+        })?;
+
+    tracing::info!(
+        %job_id,
+        "Switch {:?}: started switch certificate configuration",
+        switch_id
+    );
+
+    Ok(StateHandlerOutcome::transition(
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::ConfigureCertificate {
+                configure_certificate: ConfigureCertificateState::WaitForComplete { job_id },
+            },
+        },
+    ))
+}
+
+async fn handle_configure_certificate_wait_for_complete(
+    switch_id: &SwitchId,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    job_id: &str,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    let Some(component_manager) = ctx.services.component_manager.as_ref() else {
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Error {
+                cause:
+                    "component manager is not configured while waiting for switch certificate job"
+                        .to_string(),
+            },
+        ));
+    };
+
+    let status = component_manager
+        .get_configure_switch_certificate_job_status(job_id)
+        .await
+        .map_err(|error| {
+            StateHandlerError::GenericError(eyre::eyre!(
+                "Switch {:?}: failed to get switch certificate job status for {}: {}",
+                switch_id,
+                job_id,
+                error
+            ))
+        })?;
+
+    match status.state {
+        ConfigureSwitchCertificateState::Completed => {
+            tracing::info!(
+                %job_id,
+                "Switch {:?}: switch certificate configuration completed",
+                switch_id
+            );
+            Ok(StateHandlerOutcome::transition(
+                SwitchControllerState::Configuring {
+                    config_state: ConfiguringState::RotateOsPassword,
+                },
+            ))
+        }
+        ConfigureSwitchCertificateState::Failed => {
+            let cause = status
+                .error
+                .unwrap_or_else(|| "switch certificate configuration failed".to_string());
+            Ok(StateHandlerOutcome::transition(
+                SwitchControllerState::Error { cause },
+            ))
+        }
+        ConfigureSwitchCertificateState::Started | ConfigureSwitchCertificateState::InProgress => {
+            Ok(StateHandlerOutcome::wait(format!(
+                "switch certificate job {job_id} in progress"
+            )))
+        }
+    }
 }

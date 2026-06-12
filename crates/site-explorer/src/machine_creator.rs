@@ -251,7 +251,9 @@ impl MachineCreator {
                     nodes: vec![librms::protos::rack_manager::NodeInfo {
                         node_id: host_machine_id.to_string(),
                         rack_id: rack_id.to_string(),
-                        r#type: Some(librms::protos::rack_manager::NodeType::Compute as i32),
+                        r#type: Some(
+                            librms::protos::rack_manager::NodeType::ComputeGb200Nvidia as i32,
+                        ),
                         bmc_endpoint: Some(librms::protos::rack_manager::Endpoint {
                             interface: Some(librms::protos::rack_manager::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),

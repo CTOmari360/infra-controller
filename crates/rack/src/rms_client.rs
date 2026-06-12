@@ -960,17 +960,17 @@ pub mod test_support {
         ) -> Result<rms::GetScaleUpFabricStateResponse, RackManagerError> {
             Ok(rms::GetScaleUpFabricStateResponse::default())
         }
-        async fn fetch_switch_system_image(
+        async fn configure_switch_certificate(
             &self,
-            _cmd: rms::FetchSwitchSystemImageRequest,
-        ) -> Result<rms::FetchSwitchSystemImageResponse, RackManagerError> {
-            Ok(rms::FetchSwitchSystemImageResponse::default())
+            _cmd: rms::ConfigureSwitchCertificateRequest,
+        ) -> Result<rms::ConfigureSwitchCertificateResponse, RackManagerError> {
+            Ok(rms::ConfigureSwitchCertificateResponse::default())
         }
-        async fn install_switch_system_image(
+        async fn get_configure_switch_certificate_job_status(
             &self,
-            _cmd: rms::InstallSwitchSystemImageRequest,
-        ) -> Result<rms::InstallSwitchSystemImageResponse, RackManagerError> {
-            Ok(rms::InstallSwitchSystemImageResponse::default())
+            _cmd: rms::GetConfigureSwitchCertificateJobStatusRequest,
+        ) -> Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError> {
+            Ok(rms::GetConfigureSwitchCertificateJobStatusResponse::default())
         }
         async fn list_switch_system_images(
             &self,

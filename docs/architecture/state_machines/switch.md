@@ -10,7 +10,7 @@ The main flow shows the primary states and transitions:
 stateDiagram-v2
     state "Created" as Created
     state "Initializing (WaitForOsMachineInterface)" as Initializing
-    state "Configuring (RotateOsPassword)" as Configuring
+    state "Configuring" as Configuring
     state "Validating" as Validating
     state "BomValidating" as BomValidating
     state "Ready" as Ready
@@ -23,7 +23,7 @@ stateDiagram-v2
     Created --> Initializing : controller processes switch
     Initializing --> Configuring : all NVOS interfaces associated
     Initializing --> Error : no NVOS MACs or MAC conflict
-    Configuring --> Validating : rotate password done
+    Configuring --> Validating : rotate password and certificate config done
     Validating --> BomValidating : validation complete
     BomValidating --> Ready : BOM validation complete
 
@@ -44,7 +44,7 @@ stateDiagram-v2
 |-------|-------------|
 | **Created** | Switch record exists in NICo; awaiting first controller tick. |
 | **Initializing** | Controller waits for expected switch NVOS MAC associations. Sub-state: `WaitForOsMachineInterface`. |
-| **Configuring** | Switch is being configured (rotate OS password). Sub-state: `RotateOsPassword`. |
+| **Configuring** | Switch is being configured. Sub-states: `ConfigureCertificate` (`Start` → `WaitForComplete { job_id }`), then `RotateOsPassword`. See [Switch Certificate Configuration](switch_configure_certificate.md). |
 | **Validating** | Switch is being validated. Sub-state: `ValidationComplete`. |
 | **BomValidating** | BOM (Bill of Materials) validation. Sub-state: `BomValidationComplete`. |
 | **Ready** | Switch is ready for use. From here it can be deleted, or reprovisioning can be requested. |
@@ -58,9 +58,14 @@ stateDiagram-v2
 |------|-----|----------------------|
 | *(create)* | Created | Switch created |
 | Created | Initializing (WaitForOsMachineInterface) | Controller processes switch |
-| Initializing (WaitForOsMachineInterface) | Configuring (RotateOsPassword) | All NVOS interfaces associated for expected switch |
+| Initializing (WaitForOsMachineInterface) | Configuring (ConfigureCertificate Start) | All NVOS interfaces associated for expected switch |
 | Initializing (WaitForOsMachineInterface) | Error | Expected switch has empty `nvos_mac_addresses` or MAC owned by another switch |
-| Configuring (RotateOsPassword) | Validating (ValidationComplete) | OS password rotated |
+| Configuring (ConfigureCertificate Start) | Configuring (ConfigureCertificate WaitForComplete) | CM returns RMS job id (`domain_name` = `rack_id`) |
+| Configuring (ConfigureCertificate Start) | Configuring (RotateOsPassword) | No `rack_id` or no component manager (skip) |
+| Configuring (ConfigureCertificate WaitForComplete) | Configuring (RotateOsPassword) | RMS job `Completed` |
+| Configuring (ConfigureCertificate WaitForComplete) | Error | RMS job `Failed` |
+| Configuring (RotateOsPassword) | Validating (ValidationComplete) | NVOS credentials stored or already in vault |
+| Configuring (RotateOsPassword) | Error | No expected switch or missing BMC MAC |
 | Validating (ValidationComplete) | BomValidating (BomValidationComplete) | Validation complete |
 | BomValidating (BomValidationComplete) | Ready | BOM validation complete |
 | Ready | Deleting | `deleted` set (marked for deletion) |
@@ -74,5 +79,6 @@ stateDiagram-v2
 ## Implementation
 
 - **State type**: `SwitchControllerState` in `crates/api-model/src/switch/mod.rs`.
-- **Handlers**: `crates/api/src/state_controller/switch/` — one module per top-level state (`created`, `initializing`, `configuring`, `validating`, `bom_validating`, `ready`, `reprovisioning`, `error_state`, `deleting`).
+- **Handlers**: `crates/switch-controller/src/` — one module per top-level state (`created`, `initializing`, `configuring`, `validating`, `bom_validating`, `ready`, `reprovisioning`, `error_state`, `deleting`).
+- **Certificate configuring design**: [switch_configure_certificate.md](switch_configure_certificate.md).
 - **Orchestration**: `SwitchStateHandler` in `handler.rs` delegates to the handler for the current `controller_state`.

@@ -251,9 +251,33 @@ pub enum InitializingState {
     WaitForOsMachineInterface,
 }
 
+/// Sub-states of `ConfiguringState::ConfigureCertificate`.
+///
+/// `Start` submits certificate configuration via the component manager.
+/// `WaitForComplete` polls the returned RMS job id until the operation finishes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfigureCertificateState {
+    Start,
+    WaitForComplete { job_id: String },
+}
+
+impl std::fmt::Display for ConfigureCertificateState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigureCertificateState::Start => write!(f, "Start"),
+            ConfigureCertificateState::WaitForComplete { job_id } => {
+                write!(f, "WaitForComplete({job_id})")
+            }
+        }
+    }
+}
+
 /// Sub-state for SwitchControllerState::Configuring
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfiguringState {
+    ConfigureCertificate {
+        configure_certificate: ConfigureCertificateState,
+    },
     RotateOsPassword,
 }
 
@@ -412,6 +436,20 @@ mod tests {
         assert_eq!(
             serialized,
             "{\"state\":\"configuring\",\"config_state\":\"RotateOsPassword\"}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
+            state
+        );
+        let state = SwitchControllerState::Configuring {
+            config_state: ConfiguringState::ConfigureCertificate {
+                configure_certificate: ConfigureCertificateState::Start,
+            },
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            "{\"state\":\"configuring\",\"config_state\":{\"ConfigureCertificate\":{\"configure_certificate\":\"Start\"}}}"
         );
         assert_eq!(
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),

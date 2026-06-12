@@ -11,8 +11,8 @@ use tracing::instrument;
 use crate::config::BackendTlsConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
-    NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
-    SwitchPowerStateResult, SwitchSlotAndTrayResult,
+    ConfigureSwitchCertificateJobStatus, NvSwitchManager, SwitchComponentResult, SwitchEndpoint,
+    SwitchFirmwareUpdateStatus, SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::proto::nsm;
 use crate::types::parse_mac;
@@ -367,6 +367,26 @@ impl NvSwitchManager for NsmSwitchBackend {
                 error: Some("get power state is not supported by NSM".into()),
             })
             .collect())
+    }
+    async fn configure_switch_certificate(
+        &self,
+        endpoint: &SwitchEndpoint,
+        domain_name: &str,
+    ) -> Result<String, ComponentManagerError> {
+        let _ = (self, endpoint, domain_name);
+        Err(ComponentManagerError::InvalidArgument(
+            "NSM backend does not support switch certificate configuration".into(),
+        ))
+    }
+
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
+        let _ = job_id;
+        Err(ComponentManagerError::InvalidArgument(
+            "NSM backend does not support switch certificate configuration".into(),
+        ))
     }
 }
 

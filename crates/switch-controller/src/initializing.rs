@@ -17,17 +17,17 @@
 
 //! Handler for SwitchControllerState::Initializing.
 
-use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_uuid::switch::SwitchId;
-use component_manager::nv_switch_manager::SwitchEndpoint;
-use mac_address::MacAddress;
 use model::machine_interface_address::MachineInterfaceAssociation;
-use model::switch::{ConfiguringState, InitializingState, Switch, SwitchControllerState};
+use model::switch::{
+    ConfigureCertificateState, ConfiguringState, InitializingState, Switch, SwitchControllerState,
+};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 use crate::context::SwitchStateHandlerContextObjects;
+use crate::endpoint;
 
 /// Handles the Initializing state for a switch.
 pub async fn handle_initializing(
@@ -58,16 +58,6 @@ async fn handle_wait_for_os_machine_interface(
                 cause: "No BMC MAC address on switch".to_string(),
             },
         ));
-    };
-
-    let nvos_credentials = {
-        let key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
-        match ctx.services.credential_manager.get_credentials(&key).await {
-            Ok(Some(Credentials::UsernamePassword { username, password })) => {
-                Some((username, password))
-            }
-            _ => None,
-        }
     };
 
     let mut txn = ctx.services.db_pool.begin().await?;
@@ -111,7 +101,6 @@ async fn handle_wait_for_os_machine_interface(
 
     let mut associated_count = 0usize;
     let total = nvos_mac_addresses.len();
-    let mut nvos_interfaces: Vec<(mac_address::MacAddress, Option<std::net::IpAddr>)> = Vec::new();
 
     for mac_address in nvos_mac_addresses {
         let mi = db::machine_interface::find_by_mac_address(&mut *txn, *mac_address).await?;
@@ -137,7 +126,6 @@ async fn handle_wait_for_os_machine_interface(
                     },
                 ));
             }
-            nvos_interfaces.push((*mac_address, interface.addresses.first().copied()));
             associated_count += 1;
             continue;
         }
@@ -154,7 +142,6 @@ async fn handle_wait_for_os_machine_interface(
             interface.id,
             mac_address
         );
-        nvos_interfaces.push((*mac_address, interface.addresses.first().copied()));
         associated_count += 1;
     }
 
@@ -171,20 +158,14 @@ async fn handle_wait_for_os_machine_interface(
         if let (Some(_rack_id), Some(component_manager)) =
             (&rack_id, &ctx.services.component_manager)
         {
-            // RMS has always used one host interface for this lookup even though
-            // the previous proto exposed a list, so pick a single interface here.
-            if let Some((nvos_mac, nvos_ip)) = nvos_interfaces
-                .iter()
-                .find(|(_, ip)| ip.is_some())
-                .or_else(|| nvos_interfaces.first())
+            match endpoint::resolve_switch_endpoint(
+                switch_id,
+                &ctx.services.db_pool,
+                &ctx.services.credential_manager,
+            )
+            .await
             {
-                let endpoint = build_switch_endpoint_for_slot_tray(
-                    bmc_mac_address,
-                    *nvos_mac,
-                    *nvos_ip,
-                    nvos_credentials,
-                );
-                match component_manager
+                Ok(endpoint) => match component_manager
                     .nv_switch
                     .get_slot_and_tray(std::slice::from_ref(&endpoint))
                     .await
@@ -225,6 +206,13 @@ async fn handle_wait_for_os_machine_interface(
                             "Failed to get slot and tray from component manager backend"
                         );
                     }
+                },
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        %switch_id,
+                        "Failed to resolve switch endpoint for slot and tray lookup"
+                    );
                 }
             }
         }
@@ -237,7 +225,9 @@ async fn handle_wait_for_os_machine_interface(
         );
         Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Configuring {
-                config_state: ConfiguringState::RotateOsPassword,
+                config_state: ConfiguringState::ConfigureCertificate {
+                    configure_certificate: ConfigureCertificateState::Start,
+                },
             },
         ))
     } else {
@@ -251,30 +241,5 @@ async fn handle_wait_for_os_machine_interface(
             "{}/{} NVOS interfaces associated, waiting",
             associated_count, total
         )))
-    }
-}
-
-fn build_switch_endpoint_for_slot_tray(
-    bmc_mac: MacAddress,
-    nvos_mac: MacAddress,
-    nvos_ip: Option<std::net::IpAddr>,
-    nvos_credentials: Option<(String, String)>,
-) -> SwitchEndpoint {
-    let placeholder_ip = "0.0.0.0".parse().expect("valid placeholder IP");
-    let nvos_ip = nvos_ip.unwrap_or(placeholder_ip);
-    let credentials = nvos_credentials
-        .map(|(username, password)| Credentials::UsernamePassword { username, password })
-        .unwrap_or(Credentials::UsernamePassword {
-            username: String::new(),
-            password: String::new(),
-        });
-
-    SwitchEndpoint {
-        bmc_ip: placeholder_ip,
-        bmc_mac,
-        nvos_ip,
-        nvos_mac,
-        bmc_credentials: credentials.clone(),
-        nvos_credentials: credentials,
     }
 }

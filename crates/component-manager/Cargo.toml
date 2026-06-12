@@ -46,6 +46,7 @@ tracing = { workspace = true }
 carbide-api-test-helper = { path = "../api-test-helper" }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing" }
+toml = { workspace = true }
 uuid = { workspace = true }
 
 [build-dependencies]

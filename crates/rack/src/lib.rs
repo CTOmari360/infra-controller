@@ -21,6 +21,7 @@ use state_controller::state_handler::{ExternalServiceError, StateHandlerError};
 pub mod bms_client;
 pub mod firmware_object;
 pub mod firmware_update;
+pub mod node_type;
 pub mod rms_client;
 
 pub fn rack_manager_error(operation: &'static str, error: RackManagerError) -> StateHandlerError {

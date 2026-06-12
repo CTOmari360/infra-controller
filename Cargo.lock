@@ -3475,6 +3475,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "toml 1.1.2+spec-1.1.0",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -6534,8 +6535,8 @@ dependencies = [
 
 [[package]]
 name = "librms"
-version = "0.0.13"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+version = "0.0.14"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-mts-rc02#04cbb53a19a4ac211f9f620331c8661ffcc9de65"
 dependencies = [
  "async-trait",
  "chrono",
@@ -11495,7 +11496,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-mts-rc02#04cbb53a19a4ac211f9f620331c8661ffcc9de65"
 dependencies = [
  "async-trait",
  "heck",

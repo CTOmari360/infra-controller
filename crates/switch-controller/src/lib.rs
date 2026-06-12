@@ -22,6 +22,7 @@ pub mod configuring;
 pub mod context;
 pub mod created;
 pub mod deleting;
+pub mod endpoint;
 pub mod error_state;
 pub mod handler;
 pub mod initializing;

@@ -6,7 +6,9 @@ use std::net::IpAddr;
 
 use carbide_secrets::credentials::Credentials;
 use mac_address::MacAddress;
-use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
+use model::component_manager::{
+    ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent, PowerAction,
+};
 
 use crate::error::ComponentManagerError;
 use crate::types::FirmwareUpdateOptions;
@@ -63,6 +65,12 @@ impl crate::component_common::ComponentPowerStateResult for SwitchPowerStateResu
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigureSwitchCertificateJobStatus {
+    pub state: ConfigureSwitchCertificateState,
+    pub error: Option<String>,
+}
+
 /// Backend trait for NV-Switch management operations.
 ///
 /// Implementations receive physical endpoint information (BMC + NVOS IPs/MACs)
@@ -107,4 +115,14 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[SwitchEndpoint],
     ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError>;
+    async fn configure_switch_certificate(
+        &self,
+        endpoint: &SwitchEndpoint,
+        domain_name: &str,
+    ) -> Result<String, ComponentManagerError>;
+
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError>;
 }

@@ -45,6 +45,64 @@ pub struct ComponentManagerConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub compute_tray_use_state_controller: bool,
+
+    /// Switch services that receive installed mTLS certificates during RMS
+    /// `configure_switch_certificate` calls.
+    ///
+    /// When this field is omitted or empty, all supported services are used.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [component_manager]
+    /// switch_mtls_services = [
+    ///   "nvue_api",
+    ///   "scale_up_fabric_telemetry",
+    ///   "scale_up_fabric_manager",
+    ///   "scale_up_fabric_telemetry_interface",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub switch_mtls_services: Vec<SwitchMtlsService>,
+}
+
+impl ComponentManagerConfig {
+    /// Returns the configured switch mTLS services, or all supported services
+    /// when the field was omitted or left empty in config.
+    pub fn effective_switch_mtls_services(&self) -> Vec<SwitchMtlsService> {
+        if self.switch_mtls_services.is_empty() {
+            SwitchMtlsService::default_services()
+        } else {
+            self.switch_mtls_services.clone()
+        }
+    }
+}
+
+/// Identifies a switch service that should use installed mTLS certificates.
+///
+/// Values mirror RMS `SwitchService` and are serialized in TOML as snake_case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchMtlsService {
+    NvueApi,
+    ScaleUpFabricTelemetry,
+    ScaleUpFabricManager,
+    ScaleUpFabricTelemetryInterface,
+}
+
+impl SwitchMtlsService {
+    pub fn default_services() -> Vec<Self> {
+        vec![
+            Self::NvueApi,
+            Self::ScaleUpFabricTelemetry,
+            Self::ScaleUpFabricManager,
+            Self::ScaleUpFabricTelemetryInterface,
+        ]
+    }
+}
+
+fn default_switch_mtls_services() -> Vec<SwitchMtlsService> {
+    Vec::new()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -123,6 +181,7 @@ impl Default for ComponentManagerConfig {
             nv_switch_use_state_controller: false,
             power_shelf_use_state_controller: false,
             compute_tray_use_state_controller: false,
+            switch_mtls_services: default_switch_mtls_services(),
         }
     }
 }
@@ -201,5 +260,61 @@ mod tests {
     fn resolve_client_key_none_when_nothing_set() {
         let cfg = tls_config(None, None, None, None);
         assert!(cfg.resolve_client_key_path().is_none());
+    }
+
+    #[test]
+    fn default_switch_mtls_services_matches_rms_defaults() {
+        let cfg = ComponentManagerConfig::default();
+        assert_eq!(
+            cfg.effective_switch_mtls_services(),
+            SwitchMtlsService::default_services()
+        );
+    }
+
+    #[test]
+    fn switch_mtls_services_omitted_uses_all_supported_services() {
+        let cfg: ComponentManagerConfig = toml::from_str("nv_switch_backend = \"mock\"").unwrap();
+        assert_eq!(
+            cfg.effective_switch_mtls_services(),
+            SwitchMtlsService::default_services()
+        );
+    }
+
+    #[test]
+    fn switch_mtls_services_empty_uses_all_supported_services() {
+        let cfg: ComponentManagerConfig = toml::from_str(
+            r#"
+            switch_mtls_services = []
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.effective_switch_mtls_services(),
+            SwitchMtlsService::default_services()
+        );
+    }
+
+    #[test]
+    fn switch_mtls_services_deserialize_from_snake_case() {
+        let cfg: ComponentManagerConfig = toml::from_str(
+            r#"
+            switch_mtls_services = ["nvue_api", "scale_up_fabric_manager"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.switch_mtls_services,
+            vec![
+                SwitchMtlsService::NvueApi,
+                SwitchMtlsService::ScaleUpFabricManager,
+            ]
+        );
+        assert_eq!(
+            cfg.effective_switch_mtls_services(),
+            vec![
+                SwitchMtlsService::NvueApi,
+                SwitchMtlsService::ScaleUpFabricManager,
+            ]
+        );
     }
 }

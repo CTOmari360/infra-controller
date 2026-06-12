@@ -22,10 +22,16 @@ use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
+use carbide_uuid::rack::RackId;
 use component_manager::compute_tray_manager::Backend;
 use component_manager::config::ComponentManagerConfig;
+use component_manager::mock::MockNvSwitchManager;
+use component_manager::nv_switch_manager::ConfigureSwitchCertificateJobStatus;
 use db::switch as db_switch;
-use model::switch::{ConfiguringState, SwitchControllerState};
+use model::component_manager::ConfigureSwitchCertificateState;
+use model::switch::{
+    ConfigureCertificateState, ConfiguringState, SwitchControllerState, ValidatingState,
+};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
@@ -36,7 +42,10 @@ use crate::tests::common::api_fixtures::create_test_env;
 
 mod fixtures;
 mod maintenance;
-use fixtures::switch::{mark_switch_as_deleted, set_switch_controller_state};
+use fixtures::switch::{
+    configure_certificate_start_state, configure_certificate_wait_state, mark_switch_as_deleted,
+    set_switch_controller_state, set_switch_rack_id, transition_switch_controller_state,
+};
 
 async fn build_test_component_manager(
     env: &common::api_fixtures::TestEnv,
@@ -63,6 +72,288 @@ async fn build_test_component_manager(
     .await
     .ok()
     .map(Arc::new)
+}
+
+async fn run_switch_controller_with_services(
+    pool: sqlx::PgPool,
+    work_lock_manager_handle: db::work_lock_manager::WorkLockManagerHandle,
+    services: SwitchStateHandlerServices,
+) {
+    let cancel_token = CancellationToken::new();
+    let mut controller = StateController::<SwitchStateControllerIO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_millis(50),
+            processor_dispatch_interval: Duration::from_millis(10),
+            ..Default::default()
+        })
+        .database(pool, work_lock_manager_handle)
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(services.into())
+        .state_handler(Arc::new(SwitchStateHandler::default()))
+        .build_for_manual_iterations(cancel_token)
+        .unwrap();
+    controller.run_single_iteration().await;
+}
+
+fn mock_component_manager(
+    nv_switch: Arc<dyn component_manager::nv_switch_manager::NvSwitchManager>,
+) -> Arc<component_manager::component_manager::ComponentManager> {
+    Arc::new(component_manager::component_manager::ComponentManager::new(
+        nv_switch,
+        Arc::new(component_manager::mock::MockPowerShelfManager),
+        Arc::new(component_manager::mock::MockComputeTrayManager),
+        false,
+        false,
+        false,
+    ))
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_start_skips_without_rack_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_start_state(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        }
+    ));
+    assert!(switch.rack_id.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_start_skips_without_component_manager(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut txn = pool.begin().await?;
+    set_switch_rack_id(txn.as_mut(), &switch_id, &rack_id).await?;
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_start_state(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        SwitchStateHandlerServices {
+            db_pool: pool.clone(),
+            component_manager: None,
+            credential_manager: env.test_credential_manager.clone(),
+        },
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        }
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_start_transitions_to_wait_for_complete_with_rack_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut txn = pool.begin().await?;
+    set_switch_rack_id(txn.as_mut(), &switch_id, &rack_id).await?;
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_start_state(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        SwitchStateHandlerServices {
+            db_pool: pool.clone(),
+            component_manager: Some(mock_component_manager(Arc::new(
+                MockNvSwitchManager::default(),
+            ))),
+            credential_manager: env.test_credential_manager.clone(),
+        },
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::ConfigureCertificate {
+                configure_certificate: ConfigureCertificateState::WaitForComplete {
+                    ref job_id
+                },
+            },
+        } if job_id == "mock-switch-cert-job"
+    ));
+    assert_eq!(switch.rack_id.as_ref(), Some(&rack_id));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_wait_for_complete_transitions_to_rotate_os_password(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_wait_state("mock-switch-cert-job"),
+    )
+    .await?;
+    txn.commit().await?;
+
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        SwitchStateHandlerServices {
+            db_pool: pool.clone(),
+            component_manager: Some(mock_component_manager(Arc::new(
+                MockNvSwitchManager::default(),
+            ))),
+            credential_manager: env.test_credential_manager.clone(),
+        },
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        }
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_wait_for_complete_transitions_to_error_on_failure(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_wait_state("mock-switch-cert-job"),
+    )
+    .await?;
+    txn.commit().await?;
+
+    let failing_mock = MockNvSwitchManager::default().with_certificate_job_status(
+        ConfigureSwitchCertificateJobStatus {
+            state: ConfigureSwitchCertificateState::Failed,
+            error: Some("cert install failed".to_string()),
+        },
+    );
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        SwitchStateHandlerServices {
+            db_pool: pool.clone(),
+            component_manager: Some(mock_component_manager(Arc::new(failing_mock))),
+            credential_manager: env.test_credential_manager.clone(),
+        },
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Error { ref cause } if cause == "cert install failed"
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_rotate_os_password_transitions_to_validating(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Validating {
+            validating_state: ValidatingState::ValidationComplete,
+        }
+    ));
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
@@ -194,9 +485,9 @@ async fn test_switch_deletion_with_state_controller(
 }
 
 /// Tests the entire Switch ControllerState transition flow: Initializing -> Configuring
-/// (RotateOsPassword) -> Validating (ValidationComplete) -> BomValidating
-/// (BomValidationComplete) -> Ready. Uses the real SwitchStateHandler so each state handler
-/// performs its transition.
+/// (ConfigureCertificate) -> Configuring (RotateOsPassword) -> Validating (ValidationComplete)
+/// -> BomValidating (BomValidationComplete) -> Ready. Uses the real SwitchStateHandler so each
+/// state handler performs its transition.
 #[crate::sqlx_test]
 async fn test_switch_entire_state_transition_flow(
     pool: sqlx::PgPool,
