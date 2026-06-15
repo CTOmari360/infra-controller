@@ -355,9 +355,10 @@ releases:
 - The **admin UI** (also referred to as the *debug UI*) — same audience as the
   admin CLI.
 - The **Vault data model** — how secrets are laid out inside HashiCorp Vault.
-- The **PostgreSQL database schema** used by NICo services. See the
-  [tracking issue for database backward compatibility](https://github.com/NVIDIA/infra-controller/issues)
-  on GitHub for the current state of this guarantee.
+- The **PostgreSQL database schema** used by NICo services. See
+  [issue #2019](https://github.com/NVIDIA/infra-controller/issues/2019) for
+  the current state of this guarantee (tracked alongside downgrade support,
+  which depends on it).
 - Any other internal API contract between NICo services, or persistent data
   formats used only by NICo itself.
 
