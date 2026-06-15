@@ -15,15 +15,15 @@ above, tagged with its semver version (see [Tag Naming](#tag-naming) below).
 
 ## Branches
 
-NICo uses a small number of long-lived branches together with semver tags. The
-table below summarizes them; each is described in detail in the following
-sections.
+NICo uses just two long-lived branch types — `main` and per-minor-version
+release branches — together with semver tags that distinguish prereleases,
+release candidates, and final releases. The `-rc` and `-pr` suffixes are
+**tag** suffixes, not branch suffixes.
 
-| Branch                    | Purpose                                     | Stability                  |
-|---------------------------|---------------------------------------------|----------------------------|
-| `main`                    | Ongoing development                         | No stability guarantee     |
-| `releases/vX.Y-rc`        | Release candidate, under active QA          | Improving, may be broken   |
-| `releases/vX.Y`           | QA signed-off release branch                | Stable, recommended        |
+| Branch              | Purpose                                  | Stability                |
+|---------------------|------------------------------------------|--------------------------|
+| `main`              | Ongoing development                      | No stability guarantee   |
+| `releases/vX.Y`     | Stabilization and release of `vX.Y.*`    | Improves over QA window, becomes stable once a non-`-rc` tag is cut |
 
 ### `main` — Ongoing Development
 
@@ -35,27 +35,21 @@ present at any commit.
 Use `main` if you want early access to in-progress features and you accept that
 things will sometimes be broken.
 
-### `releases/vX.Y-rc` — Release Candidate Branches
+### `releases/vX.Y` — Release Branches
 
 When development for a minor version is feature-complete, a new long-lived
-release branch is cut from `main`. While QA is in progress, this branch carries
-an `-rc` suffix (for example, `releases/v2.1-rc`). "rc" stands for **release
-candidate**: the code is being stabilized and exercised by QA, but has not yet
-been signed off.
+release branch (for example, `releases/v2.1`) is cut from `main`. This single
+branch holds the entire life of that minor version:
 
-Use the latest commit on a release candidate branch if you want code that is a
-little more stable than `main` (more so as QA progresses), with the
-understanding that QA may still uncover problems. Use at your own risk.
+- **During the one-month QA window**, the branch carries `vX.Y-rc` tags as
+  fixes land — these are *release candidates*, not final releases.
+- **Once QA signs off**, a final `vX.Y.0` tag is cut on the same branch.
+- **After GA**, the branch continues to host patch releases (`vX.Y.1`,
+  `vX.Y.2`, …) as they are tagged.
 
-### `releases/vX.Y` — QA Signed-Off Release Branches
-
-Once QA has signed off on a release candidate, the `-rc` suffix is dropped and
-the branch becomes the long-lived release branch for that minor version (for
-example, `releases/v2.1`). All subsequent patch releases for that minor version
-are made from this branch.
-
-This branch — specifically, its latest tagged commit — is what most users should
-deploy. See [Tag Naming](#tag-naming) below.
+The branch itself never carries an `-rc` suffix — only the tags on it do.
+The latest non-`-rc` tag on this branch is what most users should deploy.
+See [Tag Naming](#tag-naming) below.
 
 ### Tag Naming
 
@@ -71,12 +65,13 @@ The following tag forms appear in the repository:
   `releases/vX.Y`.
 - **`vX.Y.Z`** (where `Z > 0`) — A patch release on top of `vX.Y.0`. Also
   published as a GitHub release from `releases/vX.Y`.
-- **`vX.Y-rc`** — Applied to commits on the `-rc` branch during the QA period.
-  Not a final release.
-- **`vX.Y-pr`** — Applied to `main` immediately after a release branch is cut,
-  to indicate that `main` is now the **prerelease** for the next minor version.
-  For example, the day `releases/v2.1` is cut, `main` is tagged `v2.2-pr`,
-  signaling that `main` is now pre-v2.2.
+- **`vX.Y-rc`** (often suffixed further, e.g. `vX.Y-rc.1`, `vX.Y-rc.2`) —
+  Applied to commits on `releases/vX.Y` during the one-month QA window to
+  identify release candidates. Not a final release; *not* a branch name.
+- **`vX.Y-pr`** — Applied to `main` immediately after a release branch is
+  cut, to indicate that `main` is now the **prerelease** for the next minor
+  version. For example, the day `releases/v2.1` is cut, `main` is tagged
+  `v2.2-pr`, signaling that `main` is now pre-v2.2.
 
 ## Release Cadence
 
@@ -87,13 +82,15 @@ NICo follows a fixed quarterly cadence with a one-month QA window.
 Every quarter:
 
 1. **Code complete** (last day of December, March, June, September): a new
-   release branch (e.g. `releases/v2.1-rc`) is cut from `main`.
+   release branch (e.g. `releases/v2.1`) is cut from `main`.
 2. Immediately after the cut, `main` is tagged with `vX.(Y+1)-pr` to mark the
    start of the next prerelease cycle on `main`.
-3. The release candidate branch is **stabilized and QA tested for one month**.
-4. **Final minor release** (last day of January, April, July, October): when QA
-   signs off, the `-rc` suffix is dropped, the branch becomes `releases/vX.Y`,
-   and a `vX.Y.0` tag is cut and published as a GitHub release.
+3. The release branch is **stabilized and QA tested for one month**. During
+   this window, release-candidate tags (e.g. `v2.1-rc`, `v2.1-rc.1`, …) are
+   applied to commits on the branch as QA cycles through them.
+4. **Final minor release** (last day of January, April, July, October): when
+   QA signs off, a `vX.Y.0` tag is cut on the same `releases/vX.Y` branch and
+   published as a GitHub release.
 
 In short: minor releases ship one month after code complete.
 
@@ -109,7 +106,7 @@ GitHub with a `vX.Y.Z` tag.
 | Goal                                                    | What to run                                                |
 |---------------------------------------------------------|------------------------------------------------------------|
 | Early access to in-progress features                    | Latest `main`                                              |
-| Slightly more stable, willing to help shake out bugs    | Latest commit on `releases/vX.Y-rc`                        |
+| Slightly more stable, willing to help shake out bugs    | Latest `vX.Y-rc[.N]` tag on `releases/vX.Y`                |
 | Most stable, production-style use                       | Latest non-`-rc`, non-`-pr` tag on `releases/vX.Y`         |
 
 Bugs found on a tagged release (`vX.Y.Z` with no `-rc` or `-pr` suffix) are
@@ -281,9 +278,10 @@ A few terms used on this page that may not be obvious:
 - **Code complete** — the point in the cycle at which feature work for a minor
   version stops and stabilization begins. On this date, the release branch is
   cut from `main`.
-- **Release candidate (rc)** — a build or branch that is a candidate for
-  release, pending QA sign-off. Identified by the `-rc` suffix on the branch
-  name.
+- **Release candidate (rc)** — a tagged build on a `releases/vX.Y` branch
+  that is a candidate for release, pending QA sign-off. Identified by the
+  `-rc` suffix on the tag (e.g. `v2.1-rc`, `v2.1-rc.2`). Note: `-rc` is a
+  tag suffix only; there is no `releases/...-rc` branch.
 - **Prerelease (pr)** — a build of `main` that is on its way to becoming the
   next minor release. Identified by the `-pr` suffix on a tag (e.g.
   `v2.2-pr`).
