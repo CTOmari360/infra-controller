@@ -114,6 +114,98 @@ treated with the highest priority and are tracked as **QA test escapes** —
 defects that slipped past the QA window and require a follow-up fix, typically
 in the next patch release.
 
+## Support Policy
+
+At any point in time, exactly three minor releases are visible to users, each
+in a different support tier. The tiers shift forward by one slot each time a
+new minor release passes QA.
+
+| Tier            | Which release      | Bug fixes?                       | Notes                                  |
+|-----------------|--------------------|----------------------------------|----------------------------------------|
+| **Current**     | The newest GA minor (e.g. `v2.2`) | Yes — normal bar         | Recommended for production deployments. **No new feature work lands here** — new features land in `main` and ship in the next minor release. Small, low-risk improvements may occasionally be backported alongside bug fixes. |
+| **Maintenance** | One minor back (`v2.1`)           | Yes, but at a higher bar | Critical fixes and regressions only — not a destination for new feature work |
+| **End-of-Life (EOL)** | Two minors back (`v2.0`)    | No                       | Unsupported. No further releases will be cut on this branch |
+
+> **A note on terminology.** The middle tier is called **Maintenance** in this
+> document. The user-supplied draft of this policy used the word *deprecated*;
+> we use *Maintenance* instead because it's the more standardized industry
+> term for "still supported, but on a higher bar for changes" (e.g. Kubernetes
+> and PostgreSQL community releases). *Deprecated* in most ecosystems implies
+> "scheduled for removal," which is closer to what we mean by **EOL**.
+
+### Tier Transitions
+
+When release `vX.Y` passes QA and becomes Current:
+
+1. The release that was Current (`vX.(Y-1)`) moves to **Maintenance**.
+2. The release that was Maintenance (`vX.(Y-2)`) moves to **EOL** and stops
+   receiving fixes.
+3. The newly Current release (`vX.Y`) begins accepting patch releases under
+   the normal bar.
+
+Because the quarterly cadence is fixed, each minor release spends roughly
+three months as Current, three months as Maintenance, and is then EOL.
+
+### Fix Backporting
+
+NICo uses a four-level severity scheme aligned with common industry practice
+(see, for example, the
+[Kubernetes patch-release criteria](https://kubernetes.io/releases/patch-releases/#cherry-pick-criteria)
+and the [CVSS v3.1 severity ratings](https://nvd.nist.gov/vuln-metrics/cvss)
+for security issues):
+
+| Severity     | Definition                                                                                                                                            |
+|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Critical** | Data loss or corruption; security vulnerability rated CVSS ≥ 9.0; complete outage of a production system; no workaround available.                    |
+| **High**     | Regression from the previous minor release; security vulnerability rated CVSS 7.0–8.9; major feature unusable for a typical user; workaround exists but is impractical. |
+| **Medium**   | Functional bug affecting a non-critical workflow; security vulnerability rated CVSS 4.0–6.9; reasonable workaround exists.                            |
+| **Low**      | Cosmetic, documentation, log-spam, minor UX, or quality-of-life issues; CVSS < 4.0.                                                                   |
+
+A **change** is anything that is not just a bug fix: new APIs, new fields,
+new flags, new dependencies, version bumps of major dependencies, refactors,
+performance improvements that are not fixing a regression, etc.
+
+The bars below apply on top of these definitions:
+
+- **Current — "normal bar."** Accepts Critical, High, and Medium bug fixes,
+  shipped via patch releases (`vX.Y.Z`). Low-severity fixes are accepted when
+  cheap and safe; they may also be deferred to the next minor. **New feature
+  work does not land on Current** — features land in `main` and ship in the
+  next minor release. Small, low-risk *changes* (e.g. a one-line config knob,
+  a clearer error message) may occasionally land alongside fixes when the
+  value clearly outweighs the destabilization risk; this is the exception,
+  not the rule.
+- **Maintenance — "higher bar."** Accepts **Critical and High only**.
+  Medium- and Low-severity bug fixes are *not* backported, and no changes
+  (in the sense above) are accepted. The intent is to keep Maintenance
+  releases as boring and predictable as possible: only the things that would
+  force a user to upgrade anyway get backported.
+- **EOL** receives no fixes regardless of severity. Users on EOL releases
+  should plan an upgrade.
+
+When in doubt about whether a fix clears the Maintenance bar, default to
+"no" and link the original fix PR in a comment so the decision is auditable.
+
+### Upgrade and Downgrade Support
+
+| From → To                                  | Supported? |
+|--------------------------------------------|------------|
+| EOL → Maintenance                          | Yes        |
+| EOL → Current                              | Yes        |
+| Maintenance → Current                      | Yes        |
+| Any → same minor, newer patch              | Yes        |
+| Any backward direction (downgrade)         | **No**     |
+
+In other words, you may skip the Maintenance tier when upgrading from EOL
+straight to Current, but you may not move backward to an older minor (or to
+an older patch within the same minor). If a Current release introduces a
+problem that blocks you, the supported recovery is a forward-fix in the next
+patch release, not a downgrade.
+
+Downgrade support is being tracked as a potential future capability in
+[issue #2019 — *feat: Need to be able to downgrade NICo versions*](https://github.com/NVIDIA/infra-controller/issues/2019);
+follow that issue for the latest state.
+
 ## QA Workflow
 
 NICo's QA process is tracked entirely in GitHub Issues, using the
@@ -298,3 +390,10 @@ A few terms used on this page that may not be obvious:
 - **Disposition** — the GitHub project field that records *why* an issue was
   closed (e.g. `Item Completed`, `Cannot reproduce`, `Will not fix`,
   `Behaves Correctly`, `Not a bug`). Independent of `QA Test Status`.
+- **Current** — the most recent GA minor release. Receives bug fixes under
+  the normal bar via patch releases.
+- **Maintenance** — the minor release one version behind Current. Still
+  supported, but only for fixes meeting a higher bar (regressions, security
+  fixes, critical blockers).
+- **End-of-Life (EOL)** — the minor release two versions behind Current. No
+  longer receives fixes. Users should upgrade to Maintenance or Current.
