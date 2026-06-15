@@ -136,8 +136,8 @@ impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
 impl From<SiteExplorerLastRun> for rpc::site_explorer::SiteExplorerLastRun {
     fn from(run: SiteExplorerLastRun) -> Self {
         rpc::site_explorer::SiteExplorerLastRun {
-            started_at: run.started_at.to_string(),
-            finished_at: run.finished_at.to_string(),
+            started_at: run.started_at.to_rfc3339(),
+            finished_at: run.finished_at.to_rfc3339(),
             success: run.success,
             error: run.error,
             endpoint_explorations: run.endpoint_explorations,
