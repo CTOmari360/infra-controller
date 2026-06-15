@@ -41,8 +41,8 @@ When development for a minor version is feature-complete, a new long-lived
 release branch (for example, `releases/v2.1`) is cut from `main`. This single
 branch holds the entire life of that minor version:
 
-- **During the one-month QA window**, the branch carries `vX.Y-rc` tags as
-  fixes land — these are *release candidates*, not final releases.
+- **During the one-month QA window**, the branch carries `vX.Y.Z-rcN` tags
+  as fixes land — these are *release candidates*, not final releases.
 - **Once QA signs off**, a final `vX.Y.0` tag is cut on the same branch.
 - **After GA**, the branch continues to host patch releases (`vX.Y.1`,
   `vX.Y.2`, …) as they are tagged.
@@ -65,17 +65,31 @@ The following tag forms appear in the repository:
   `releases/vX.Y`.
 - **`vX.Y.Z`** (where `Z > 0`) — A patch release on top of `vX.Y.0`. Also
   published as a GitHub release from `releases/vX.Y`.
-- **`vX.Y-rc`** (often suffixed further, e.g. `vX.Y-rc.1`, `vX.Y-rc.2`) —
-  Applied to commits on `releases/vX.Y` during the one-month QA window to
-  identify release candidates. Not a final release; *not* a branch name.
-- **`vX.Y-pr`** — Applied to `main` immediately after a release branch is
-  cut, to indicate that `main` is now the **prerelease** for the next minor
-  version. For example, the day `releases/v2.1` is cut, `main` is tagged
-  `v2.2-pr`, signaling that `main` is now pre-v2.2.
+- **`vX.Y.Z-rcN`** (e.g. `v2.1.0-rc1`, `v2.1.0-rc2`, `v2.1.5-rc1`) — A
+  release candidate. Applied to commits on `releases/vX.Y` during the QA
+  window for whichever release is being prepared (initial `.0` or a later
+  patch). All four elements — major, minor, patch, and RC number — are
+  always present. Patch releases do not get their own branch — they live
+  on the same `releases/vX.Y` branch and are distinguished only by the
+  tag. So the first release candidate for `v2.1.5` is tagged `v2.1.5-rc1`
+  on `releases/v2.1`, and the final tag (once QA signs off) is `v2.1.5`.
+- **`vX.Y.Z-pr`** (always with `Z = 0`, e.g. `v2.2.0-pr`) — Applied to
+  `main` immediately after a release branch is cut, to indicate that `main`
+  is now the **prerelease** for the next minor version. All three numeric
+  elements are present for consistency with `-rcN` tags. For example, the
+  day `releases/v2.1` is cut, `main` is tagged `v2.2.0-pr`, signaling that
+  `main` is now pre-v2.2.0.
 
 ## Release Cadence
 
 NICo follows a fixed quarterly cadence with a one-month QA window.
+
+We also aim to **avoid releases during major US and international holiday
+periods** — including, but not limited to, the late-December/early-January
+end-of-year break, US Thanksgiving week, Lunar New Year, and Diwali — out of
+respect for the work/life balance of contributors and operators who observe
+them. When the published schedule would otherwise land a release inside one
+of these windows, the release is rescheduled to the next practical date.
 
 ### Minor Releases (`X.Y.0`)
 
@@ -83,11 +97,11 @@ Every quarter:
 
 1. **Code complete** (last day of December, March, June, September): a new
    release branch (e.g. `releases/v2.1`) is cut from `main`.
-2. Immediately after the cut, `main` is tagged with `vX.(Y+1)-pr` to mark the
-   start of the next prerelease cycle on `main`.
+2. Immediately after the cut, `main` is tagged with `vX.(Y+1).0-pr` to mark
+   the start of the next prerelease cycle on `main`.
 3. The release branch is **stabilized and QA tested for one month**. During
-   this window, release-candidate tags (e.g. `v2.1-rc`, `v2.1-rc.1`, …) are
-   applied to commits on the branch as QA cycles through them.
+   this window, release-candidate tags (e.g. `v2.1.0-rc1`, `v2.1.0-rc2`, …)
+   are applied to commits on the branch as QA cycles through them.
 4. **Final minor release** (last day of January, April, July, October): when
    QA signs off, a `vX.Y.0` tag is cut on the same `releases/vX.Y` branch and
    published as a GitHub release.
@@ -97,16 +111,33 @@ In short: minor releases ship one month after code complete.
 ### Patch Releases (`X.Y.Z`)
 
 Patch releases happen on the `releases/vX.Y` branch after the corresponding
-`vX.Y.0` has shipped. Patch releases are cut as needed, but at most **once per
-month**, on the last day of the month. Each patch release is published on
-GitHub with a `vX.Y.Z` tag.
+`vX.Y.0` has shipped. The cadence is **about once per month, no less
+frequent than that** — on the last day of the month by default — but
+critical bug fixes (data loss, security, production-blocking regressions)
+may trigger an earlier release outside the normal cadence. "Once per month"
+describes the *floor* of the cadence, not a ceiling on how many patches we
+can cut.
+
+Patch releases go through their own QA window, scoped to the changes being
+shipped. The mechanics are the same as for a minor release but use a
+patch-versioned RC tag:
+
+1. Candidate commits are tagged on `releases/vX.Y` as `vX.Y.Z-rcN` (e.g.
+   `v2.1.5-rc1`, `v2.1.5-rc2`).
+2. QA executes the relevant test plans against the RC tag.
+3. Once QA signs off, the final `vX.Y.Z` tag is cut on the same branch.
+
+Note that **patch releases do not get their own branch.** All `v2.1.*` work
+lives on `releases/v2.1`; only the tags distinguish a patch RC from the
+final patch release. Each final patch release is published on GitHub with
+a `vX.Y.Z` tag.
 
 ## Which Version Should I Use?
 
 | Goal                                                    | What to run                                                |
 |---------------------------------------------------------|------------------------------------------------------------|
 | Early access to in-progress features                    | Latest `main`                                              |
-| Slightly more stable, willing to help shake out bugs    | Latest `vX.Y-rc[.N]` tag on `releases/vX.Y`                |
+| Slightly more stable, willing to help shake out bugs    | Latest `vX.Y.Z-rcN` tag on `releases/vX.Y`                 |
 | Most stable, production-style use                       | Latest non-`-rc`, non-`-pr` tag on `releases/vX.Y`         |
 
 Bugs found on a tagged release (`vX.Y.Z` with no `-rc` or `-pr` suffix) are
@@ -169,17 +200,18 @@ The bars below apply on top of these definitions:
 
 - **Current — "normal bar."** Accepts Critical, High, and Medium bug fixes,
   shipped via patch releases (`vX.Y.Z`). Low-severity fixes are accepted when
-  cheap and safe; they may also be deferred to the next minor. **New feature
-  work does not land on Current** — features land in `main` and ship in the
-  next minor release. Small, low-risk *changes* (e.g. a one-line config knob,
-  a clearer error message) may occasionally land alongside fixes when the
-  value clearly outweighs the destabilization risk; this is the exception,
-  not the rule.
+  they are low-risk; they may also be deferred to the next minor release.
+  **New feature work does not land on Current** — features land in `main`
+  and ship in the next minor release. Small, low-risk *changes* (for
+  example, a one-line configuration option or a clearer error message) may
+  occasionally land alongside fixes when their value clearly outweighs the
+  risk of destabilizing a supported release; this is the exception, not the
+  rule.
 - **Maintenance — "higher bar."** Accepts **Critical and High only**.
   Medium- and Low-severity bug fixes are *not* backported, and no changes
   (in the sense above) are accepted. The intent is to keep Maintenance
-  releases as boring and predictable as possible: only the things that would
-  force a user to upgrade anyway get backported.
+  releases as stable and predictable as possible: only fixes that would
+  otherwise compel a user to upgrade are backported.
 - **EOL** receives no fixes regardless of severity. Users on EOL releases
   should plan an upgrade.
 
@@ -374,11 +406,11 @@ A few terms used on this page that may not be obvious:
   cut from `main`.
 - **Release candidate (rc)** — a tagged build on a `releases/vX.Y` branch
   that is a candidate for release, pending QA sign-off. Identified by the
-  `-rc` suffix on the tag (e.g. `v2.1-rc`, `v2.1-rc.2`). Note: `-rc` is a
-  tag suffix only; there is no `releases/...-rc` branch.
+  `-rcN` suffix on the tag (e.g. `v2.1.0-rc1`, `v2.1.5-rc2`). Note: `-rc`
+  is a tag suffix only; there is no `releases/...-rc` branch.
 - **Prerelease (pr)** — a build of `main` that is on its way to becoming the
   next minor release. Identified by the `-pr` suffix on a tag (e.g.
-  `v2.2-pr`).
+  `v2.2.0-pr`).
 - **QA sign-off** — the formal acknowledgment from QA that a release candidate
   has passed its test plan and may be promoted to a final release.
 - **QA test escape** — a defect discovered in a tagged, signed-off release that
