@@ -266,39 +266,40 @@ The `QA Test Status` field walks roughly like this:
     test plan itself does not need to be re-designed unless the failure
     reveals a gap in the plan).
 
-```
-                  ┌──────────────────┐
-new issue ───────►│   QA to triage   │ (set manually today)
-                  └────────┬─────────┘
-                           │
-        ┌──────────────────┼─────────────────────┐
-        ▼                  ▼                     ▼
- ┌──────────────┐   ┌──────────────┐    ┌─────────────────┐
- │QA Not Required│  │ QA Need Info │◄──►│ QA Test Design  │
- │  (terminal,   │  └──────────────┘    │ (assign QA Eng.)│
- │ no QA gating) │                      └────────┬────────┘
- └──────────────┘                                │
-                                                 ▼
-                                      ┌────────────────────┐
-                                      │Dev Signoff Required│
-                                      └─────────┬──────────┘
-                                                │
-                             ┌──────────────────┴─────────────────┐
-                             ▼                                    ▼
-                  ┌──────────────────────┐         ┌──────────────────────────┐
-                  │  Test Plan Approved  │         │Test Plan Rework Required │
-                  └─────────┬────────────┘         └─────────────┬────────────┘
-                            │                                    │
-                            ▼                               (back to QA Test Design)
-                  ┌──────────────────┐
-                  │   QA Execution   │◄────────────┐
-                  └────────┬─────────┘             │
-                           │                       │ (fix re-merged)
-                    ┌──────┴──────┐                │
-                    ▼             ▼                │
-              ┌─────────┐   ┌──────────┐           │
-              │QA Passed│   │QA Failed │───────────┘
-              └─────────┘   └──────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> QAToTriage : new issue<br/>(set manually today)
+
+    QAToTriage : QA to triage
+    QANotRequired : QA Not Required<br/>(terminal, no QA gating)
+    QANeedInfo : QA Need Info
+    QATestDesign : QA Test Design<br/>(assign QA Engineer)
+    DevSignoffRequired : Dev Signoff Required
+    TestPlanApproved : Test Plan Approved
+    TestPlanReworkRequired : Test Plan Rework Required
+    QAExecution : QA Execution
+    QAPassed : QA Passed
+    QAFailed : QA Failed
+
+    QAToTriage --> QANotRequired
+    QAToTriage --> QANeedInfo
+    QAToTriage --> QATestDesign
+
+    QANeedInfo --> QATestDesign
+    QATestDesign --> QANeedInfo
+
+    QATestDesign --> DevSignoffRequired
+    DevSignoffRequired --> TestPlanApproved
+    DevSignoffRequired --> TestPlanReworkRequired
+    TestPlanReworkRequired --> QATestDesign
+
+    TestPlanApproved --> QAExecution
+    QAExecution --> QAPassed
+    QAExecution --> QAFailed
+    QAFailed --> QAExecution : fix re-merged
+
+    QANotRequired --> [*]
+    QAPassed --> [*]
 ```
 
 ### How `QA Test Status` Relates to Issue `Status`
