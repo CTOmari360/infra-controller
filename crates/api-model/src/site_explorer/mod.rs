@@ -719,10 +719,34 @@ mod serialize_option_display {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SiteExplorationReport {
+    /// Metadata about the latest site explorer run, if site explorer has run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<SiteExplorerLastRun>,
     /// The endpoints that had been explored
     pub endpoints: Vec<ExploredEndpoint>,
     /// The managed-hosts which have been explored
     pub managed_hosts: Vec<ExploredManagedHost>,
+}
+
+/// Operator-facing status for the latest site explorer run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SiteExplorerLastRun {
+    /// When the run started.
+    pub started_at: DateTime<Utc>,
+    /// When the run finished.
+    pub finished_at: DateTime<Utc>,
+    /// Whether the run completed successfully.
+    pub success: bool,
+    /// Error string for a failed run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Number of endpoint exploration attempts made during the run.
+    pub endpoint_explorations: i64,
+    /// Number of successful endpoint explorations during the run.
+    pub endpoint_explorations_success: i64,
+    /// Number of endpoint exploration errors during the run.
+    pub endpoint_explorations_failed: i64,
 }
 
 impl EndpointExplorationReport {

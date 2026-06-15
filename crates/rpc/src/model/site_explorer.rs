@@ -21,7 +21,7 @@ use model::site_explorer::{
     ExploredEndpointSearchFilter, ExploredManagedHost, ExploredManagedHostSearchFilter,
     InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
     Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState, SecureBootStatus, Service,
-    SiteExplorationReport, SystemStatus,
+    SiteExplorationReport, SiteExplorerLastRun, SystemStatus,
 };
 
 use crate as rpc;
@@ -126,8 +126,23 @@ impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
 impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
     fn from(report: SiteExplorationReport) -> Self {
         rpc::site_explorer::SiteExplorationReport {
+            last_run: report.last_run.map(Into::into),
             endpoints: report.endpoints.into_iter().map(Into::into).collect(),
             managed_hosts: report.managed_hosts.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<SiteExplorerLastRun> for rpc::site_explorer::SiteExplorerLastRun {
+    fn from(run: SiteExplorerLastRun) -> Self {
+        rpc::site_explorer::SiteExplorerLastRun {
+            started_at: run.started_at.to_string(),
+            finished_at: run.finished_at.to_string(),
+            success: run.success,
+            error: run.error,
+            endpoint_explorations: run.endpoint_explorations,
+            endpoint_explorations_success: run.endpoint_explorations_success,
+            endpoint_explorations_failed: run.endpoint_explorations_failed,
         }
     }
 }

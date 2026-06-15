@@ -596,6 +596,7 @@ impl ApiClient {
         Ok(::rpc::site_explorer::SiteExplorationReport {
             endpoints: all_endpoints.endpoints,
             managed_hosts: all_hosts,
+            last_run: None,
         })
     }
 

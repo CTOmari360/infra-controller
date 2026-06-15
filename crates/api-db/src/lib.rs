@@ -82,6 +82,7 @@ pub mod resource_pool;
 pub mod retained_boot_interface;
 pub mod route_servers;
 pub mod site_exploration_report;
+pub mod site_explorer_run_status;
 pub mod sku;
 pub mod spx_partition;
 pub mod state_history;
