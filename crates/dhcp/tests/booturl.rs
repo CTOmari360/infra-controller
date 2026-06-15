@@ -14,8 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::io::ErrorKind;
 use std::net::UdpSocket;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dhcp::mock_api_server;
 use dhcproto::{Decodable, Decoder, v4};
@@ -25,6 +26,27 @@ mod common;
 use common::{DHCPFactory, Kea, RELAY_IP};
 
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn send_and_recv(socket: &UdpSocket, pkt: &[u8]) -> Result<v4::Message, eyre::Report> {
+    let deadline = Instant::now() + RESPONSE_TIMEOUT;
+    let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
+
+    loop {
+        socket.send(pkt)?;
+        match socket.recv(&mut recv_buf) {
+            Ok(n) => return Ok(v4::Message::decode(&mut Decoder::new(&recv_buf[..n]))?),
+            Err(err) if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                if Instant::now() >= deadline {
+                    return Err(eyre::eyre!(
+                        "timed out waiting for DHCP offer after {RESPONSE_TIMEOUT:?}: {err}"
+                    ));
+                }
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+}
 
 #[test]
 fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
@@ -48,22 +70,11 @@ fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
-    {
-        let mut msg = DHCPFactory::discover(1);
-        msg.set_xid(0);
-        let pkt = DHCPFactory::encode(msg)?;
-        socket.send(&pkt)?;
-    }
+    let mut msg = DHCPFactory::discover(1);
+    msg.set_xid(0);
+    let pkt = DHCPFactory::encode(msg)?;
+    let msg = send_and_recv(&socket, &pkt)?;
 
-    let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
-    let n = match socket.recv(&mut recv_buf) {
-        Ok(n) => n,
-        Err(err) => {
-            panic!("socket recv unhandled error: {err}");
-        }
-    };
-
-    let msg = v4::Message::decode(&mut Decoder::new(&recv_buf[..n])).unwrap();
     let wanted_location = "http://127.0.0.1:8080/public/blobs/internal/x86_64/ipxe.efi"
         .to_string()
         .into_bytes();
@@ -111,22 +122,10 @@ fn test_booturl_from_api() -> Result<(), eyre::Report> {
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
-    {
-        let mut msg = DHCPFactory::discover(0xAA);
-        msg.set_xid(0);
-        let pkt = DHCPFactory::encode(msg)?;
-        socket.send(&pkt)?;
-    }
-
-    let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
-    let n = match socket.recv(&mut recv_buf) {
-        Ok(n) => n,
-        Err(err) => {
-            panic!("socket recv unhandled error: {err}");
-        }
-    };
-
-    let msg = v4::Message::decode(&mut Decoder::new(&recv_buf[..n])).unwrap();
+    let mut msg = DHCPFactory::discover(0xAA);
+    msg.set_xid(0);
+    let pkt = DHCPFactory::encode(msg)?;
+    let msg = send_and_recv(&socket, &pkt)?;
 
     let wanted_location =
         "https://api-specified-ipxe-url.forge/public/blobs/internal/x86_64/ipxe.efi"
