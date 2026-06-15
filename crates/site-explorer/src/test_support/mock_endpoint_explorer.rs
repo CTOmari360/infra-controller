@@ -31,10 +31,11 @@ use model::site_explorer::{
 use crate::{EndpointExplorer, SiteExplorationMetrics};
 
 /// EndpointExplorer which returns predefined data.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct MockEndpointExplorer {
     pub reports:
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+    pub precondition_result: Arc<Mutex<Result<(), EndpointExplorationError>>>,
     pub power_states: Arc<Mutex<HashMap<IpAddr, PowerState>>>,
     pub redfish_power_control_calls: Arc<Mutex<Vec<(SocketAddr, SystemPowerControl)>>>,
     /// Records every call to `set_nic_mode` (BMC address + requested target
@@ -43,6 +44,19 @@ pub struct MockEndpointExplorer {
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
     /// Records IPs that `explore_endpoint` was called for.
     pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
+}
+
+impl Default for MockEndpointExplorer {
+    fn default() -> Self {
+        Self {
+            reports: Arc::default(),
+            precondition_result: Arc::new(Mutex::new(Ok(()))),
+            power_states: Arc::default(),
+            redfish_power_control_calls: Arc::default(),
+            set_nic_mode_calls: Arc::default(),
+            explore_endpoint_calls: Arc::default(),
+        }
+    }
 }
 
 impl MockEndpointExplorer {
@@ -79,6 +93,10 @@ impl MockEndpointExplorer {
             guard.insert(address, result);
         }
     }
+
+    pub fn set_precondition_result(&self, result: Result<(), EndpointExplorationError>) {
+        *self.precondition_result.lock().unwrap() = result;
+    }
 }
 
 #[async_trait::async_trait]
@@ -87,7 +105,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
-        Ok(())
+        self.precondition_result.lock().unwrap().clone()
     }
 
     async fn explore_endpoint(

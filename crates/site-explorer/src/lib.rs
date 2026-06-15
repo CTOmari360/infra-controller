@@ -51,7 +51,8 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
-    PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+    PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu, is_bf3_supernic,
+    is_bluefield_model,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -383,7 +384,47 @@ impl SiteExplorer {
         db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
     }
 
+    fn last_run_status(
+        started_at: chrono::DateTime<Utc>,
+        finished_at: chrono::DateTime<Utc>,
+        metrics: &SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) -> SiteExplorerLastRun {
+        SiteExplorerLastRun {
+            started_at,
+            finished_at,
+            success: result.is_ok(),
+            error: result.as_ref().err().map(ToString::to_string),
+            endpoint_explorations: metrics.endpoint_explorations as i64,
+            endpoint_explorations_success: metrics.endpoint_explorations_success as i64,
+            endpoint_explorations_failed: metrics
+                .endpoint_explorations_failures_by_type
+                .values()
+                .sum::<usize>() as i64,
+        }
+    }
+
+    async fn record_last_run(&self, last_run: &SiteExplorerLastRun) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::site_explorer_run_status::upsert(&mut txn, last_run).await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
+    async fn record_last_run_result(
+        &self,
+        started_at: chrono::DateTime<Utc>,
+        metrics: &SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) {
+        let last_run = Self::last_run_status(started_at, Utc::now(), metrics, result);
+        if let Err(error) = self.record_last_run(&last_run).await {
+            tracing::error!(%error, "Failed to record SiteExplorer last run status");
+        }
+    }
+
     pub async fn run_single_iteration(&self) -> SiteExplorerResult<SiteIdentifiedHosts> {
+        let started_at = Utc::now();
         let mut metrics = SiteExplorationMetrics::new();
 
         let _work_lock = match self
@@ -393,9 +434,12 @@ impl SiteExplorer {
         {
             Ok(lock) => lock,
             Err(e) => {
-                return Err(SiteExplorerError::internal(format!(
+                let result = Err(SiteExplorerError::internal(format!(
                     "Failed to acquire connection: {e}"
                 )));
+                self.record_last_run_result(started_at, &metrics, &result)
+                    .await;
+                return result;
             }
         };
 
@@ -462,6 +506,9 @@ impl SiteExplorer {
                 explore_site_span.record("otel.status_message", format!("{e:?}"));
             }
         }
+
+        self.record_last_run_result(started_at, &metrics, &res)
+            .await;
 
         // Cache all other metrics that have been captured in this iteration.
         // Those will be queried by OTEL on demand

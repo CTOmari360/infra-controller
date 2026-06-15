@@ -126,6 +126,95 @@ impl FakeMachine {
     }
 }
 
+fn last_run_test_config() -> SiteExplorerConfig {
+    SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(false.into()),
+        create_power_shelves: Arc::new(false.into()),
+        explore_power_shelves_from_static_ip: Arc::new(false.into()),
+        create_switches: Arc::new(false.into()),
+        ..Default::default()
+    }
+}
+
+#[sqlx_test]
+async fn test_site_explorer_records_last_run_success(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    let mut machine = env.new_machine("6a:6b:6c:6d:6e:71", "Vendor1");
+    machine.discover_dhcp(env.api()).await?;
+    let bmc_ip: IpAddr = machine.ip.parse()?;
+
+    let explorer = env.test_site_explorer(last_run_test_config());
+    explorer.insert_endpoints(vec![(
+        bmc_ip,
+        EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            ..Default::default()
+        },
+    )]);
+
+    explorer.run_single_iteration().await?;
+
+    let report = fetch_exploration_report(env.api()).await;
+    let last_run = report.last_run.expect("last run should be recorded");
+    assert!(last_run.success);
+    assert_eq!(last_run.error, None);
+    assert_eq!(last_run.endpoint_explorations, 1);
+    assert_eq!(last_run.endpoint_explorations_success, 1);
+    assert_eq!(last_run.endpoint_explorations_failed, 0);
+    assert!(!last_run.started_at.is_empty());
+    assert!(!last_run.finished_at.is_empty());
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_site_explorer_records_last_run_failure(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let explorer = env.test_site_explorer(last_run_test_config());
+    explorer.endpoint_explorer().set_precondition_result(Err(
+        EndpointExplorationError::MissingCredentials {
+            key: "machines/bmc/site/root".to_string(),
+            cause: "missing site-wide credential".to_string(),
+        },
+    ));
+
+    let error = explorer
+        .run_single_iteration()
+        .await
+        .expect_err("precondition failure should fail the run");
+    assert!(
+        error
+            .to_string()
+            .contains("Missing credential machines/bmc/site/root"),
+        "unexpected error: {error}"
+    );
+
+    let report = fetch_exploration_report(env.api()).await;
+    let last_run = report.last_run.expect("last run should be recorded");
+    assert!(!last_run.success);
+    assert_eq!(last_run.endpoint_explorations, 0);
+    assert_eq!(last_run.endpoint_explorations_success, 0);
+    assert_eq!(last_run.endpoint_explorations_failed, 0);
+    assert!(
+        last_run
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Missing credential machines/bmc/site/root")),
+        "unexpected last-run error: {:?}",
+        last_run.error
+    );
+    Ok(())
+}
+
 #[sqlx_test]
 async fn test_handle_redfish_error_powers_on_machine(
     pool: PgPool,
