@@ -18,6 +18,7 @@
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
+use model::site_explorer::SiteExplorerLastRun;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     AgentUpgradePolicy, CredentialCreationRequest, CredentialType as RpcCredentialType,
@@ -75,6 +76,37 @@ async fn configure_default(env: &TestEnv, credential_type: RpcCredentialType) {
         }))
         .await
         .unwrap();
+}
+
+#[crate::sqlx_test]
+async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let last_run = SiteExplorerLastRun {
+        started_at: chrono::Utc::now(),
+        finished_at: chrono::Utc::now(),
+        success: false,
+        error: Some("Missing credential machines/bmc/site/root".to_string()),
+        endpoint_explorations: 3,
+        endpoint_explorations_success: 2,
+        endpoint_explorations_failed: 1,
+    };
+    let mut txn = env.api().database_connection.begin().await.unwrap();
+    db::site_explorer_run_status::upsert(&mut txn, &last_run)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let body = get_page(&app, "/admin/explored-endpoint").await;
+    assert!(body.contains("Last Site Explorer Run"));
+    assert!(body.contains("Failed"));
+    assert!(body.contains("Missing credential machines/bmc/site/root"));
+    assert!(body.contains("<dt>Attempted</dt>"));
+    assert!(body.contains("<dd>3</dd>"));
+    assert!(body.contains("<dt>Successful</dt>"));
+    assert!(body.contains("<dd>2</dd>"));
+    assert!(body.contains("<dt>Errored</dt>"));
+    assert!(body.contains("<dd>1</dd>"));
 }
 
 #[crate::sqlx_test]

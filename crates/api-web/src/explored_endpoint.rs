@@ -29,7 +29,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
     ExploredEndpoint, InternalLockdownStatus, LockdownStatus, MachineSetupStatus, SecureBootStatus,
-    SiteExplorationReport,
+    SiteExplorationReport, SiteExplorerLastRun,
 };
 use serde::Deserialize;
 
@@ -40,6 +40,7 @@ use crate::action_status::{self, ActionStatus};
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
 struct ExploredEndpointsShow {
+    last_run: Option<SiteExplorerLastRunDisplay>,
     vendors: Vec<String>,
     endpoints: Vec<ExploredEndpointDisplay>,
     filter_name: &'static str,
@@ -52,9 +53,45 @@ struct ExploredEndpointsShow {
 #[derive(Template)]
 #[template(path = "explored_endpoints_show_paired.html")]
 struct ExploredEndpointsShowPaired {
+    last_run: Option<SiteExplorerLastRunDisplay>,
     managed_hosts: Vec<ExploredManagedHostDisplay>,
     page: PageContext,
     missing_default_credentials: Vec<DefaultCredential>,
+}
+
+struct SiteExplorerLastRunDisplay {
+    status_label: &'static str,
+    status_class: &'static str,
+    started_at: String,
+    finished_at: String,
+    endpoint_explorations: i64,
+    endpoint_explorations_success: i64,
+    endpoint_explorations_failed: i64,
+    error: String,
+}
+
+impl From<&SiteExplorerLastRun> for SiteExplorerLastRunDisplay {
+    fn from(run: &SiteExplorerLastRun) -> Self {
+        let (status_label, status_class) = if run.success {
+            ("Success", "success")
+        } else {
+            ("Failed", "error")
+        };
+        Self {
+            status_label,
+            status_class,
+            started_at: run.started_at.clone(),
+            finished_at: run.finished_at.clone(),
+            endpoint_explorations: run.endpoint_explorations,
+            endpoint_explorations_success: run.endpoint_explorations_success,
+            endpoint_explorations_failed: run.endpoint_explorations_failed,
+            error: run.error.clone().unwrap_or_default(),
+        }
+    }
+}
+
+fn last_run_from_report(report: &SiteExplorationReport) -> Option<SiteExplorerLastRunDisplay> {
+    report.last_run.as_ref().map(Into::into)
 }
 
 fn managed_hosts_from_report(report: &SiteExplorationReport) -> Vec<ExploredManagedHostDisplay> {
@@ -253,6 +290,7 @@ pub async fn show_html_all(
     let (info, endpoints) = pagination::paginate_vec(filtered, &pagination_params);
 
     let tmpl = ExploredEndpointsShow {
+        last_run: last_run_from_report(&report),
         filter_name: "All",
         vendors,
         endpoints,
@@ -285,6 +323,7 @@ pub async fn show_html_paired(
     let (info, managed_hosts) = pagination::paginate_vec(all_hosts, &params);
 
     let tmpl = ExploredEndpointsShowPaired {
+        last_run: last_run_from_report(&report),
         managed_hosts,
         page: PageContext::new(info, "/admin/explored-endpoint/paired"),
         missing_default_credentials: state.missing_default_credentials().await,
@@ -374,6 +413,7 @@ pub async fn show_html_unpaired(
     let (info, endpoints) = pagination::paginate_vec(filtered, &pagination_params);
 
     let tmpl = ExploredEndpointsShow {
+        last_run: last_run_from_report(&report),
         filter_name: "Unpaired",
         vendors,
         endpoints,
