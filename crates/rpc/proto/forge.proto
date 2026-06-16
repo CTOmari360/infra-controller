@@ -5431,7 +5431,6 @@ enum ConfigSetting {
   BMC_PROXY = 2;
   TRACING_ENABLED = 3;
   SITE_EXPLORER_ENABLED = 4;
-  RESTART_OVS_ON_USE_ADMIN_NETWORK_CHANGE = 5;
 }
 
 message FindIpAddressRequest {
