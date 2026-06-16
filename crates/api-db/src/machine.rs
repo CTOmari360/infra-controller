@@ -2631,23 +2631,6 @@ pub async fn modify_dpf_state(
     Ok(())
 }
 
-pub async fn set_restart_ovs_on_use_admin_network_change(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    value: &str,
-) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines SET restart_ovs_on_use_admin_network_change = $1 WHERE id = $2";
-
-    sqlx::query(query)
-        .bind(value)
-        .bind(machine_id)
-        .execute(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(())
-}
-
 pub async fn mark_machine_ingestion_done_with_dpf(
     txn: &mut PgConnection,
     machine_id: &MachineId,

@@ -928,7 +928,6 @@ service Forge {
   rpc NmxcBrowse(NmxcBrowseRequest) returns (NmxcBrowseResponse);
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
-  rpc SetRestartOvsOnAdminNetworkChange(SetRestartOvsOnAdminNetworkChangeRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
   // Curated snapshot of DPF CRs (DPUNode + DPUDevices + DPUs) for one host.
   rpc GetDPFHostSnapshot(GetDPFHostSnapshotRequest) returns (DPFHostSnapshotResponse);
@@ -8268,11 +8267,6 @@ message MachinePositionInfo {
 message ModifyDPFStateRequest {
   common.MachineId machine_id = 1;
   bool dpf_enabled = 2;
-}
-
-message SetRestartOvsOnAdminNetworkChangeRequest {
-  common.MachineId machine_id = 1;
-  string value = 2;
 }
 
 message DPFStateResponse {

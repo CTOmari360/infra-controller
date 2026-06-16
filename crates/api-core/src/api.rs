@@ -59,7 +59,6 @@ use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
-use crate::handlers::machine::set_restart_ovs_on_admin_network_change;
 use crate::logging::log_limiter::LogLimiter;
 use crate::scout_stream::ConnectionRegistry;
 use crate::{CarbideError, CarbideResult};
@@ -3121,13 +3120,6 @@ impl Forge for Api {
         request: Request<rpc::ModifyDpfStateRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::dpf::modify_dpf_state(self, request).await
-    }
-
-    async fn set_restart_ovs_on_admin_network_change(
-        &self,
-        request: Request<rpc::SetRestartOvsOnAdminNetworkChangeRequest>,
-    ) -> Result<Response<()>, Status> {
-        set_restart_ovs_on_admin_network_change(self, request).await
     }
 
     async fn get_dpf_state(

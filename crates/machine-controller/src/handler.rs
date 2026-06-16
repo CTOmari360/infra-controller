@@ -7131,17 +7131,7 @@ async fn process_dpu_use_admin_network_state_change(
     host_netconf: &ManagedHostNetworkConfig,
     site_restart_ovs: &Arc<AtomicBool>,
 ) -> Result<(), StateHandlerError> {
-    use model::machine::RestartOvsOnUseAdminNetworkChange;
-
     let site_restart_ovs = site_restart_ovs.load(std::sync::atomic::Ordering::Relaxed);
-    let machine_setting = &mh_snapshot
-        .host_snapshot
-        .restart_ovs_on_use_admin_network_change;
-    let effective_restart_ovs = match machine_setting {
-        RestartOvsOnUseAdminNetworkChange::ForceDisable => false,
-        RestartOvsOnUseAdminNetworkChange::Enable => true,
-        RestartOvsOnUseAdminNetworkChange::None => site_restart_ovs,
-    };
 
     // Update the host network config. This performs a "group sync" that
     // bumps the config version on all DPUs in the machine group, signalling
@@ -7155,16 +7145,16 @@ async fn process_dpu_use_admin_network_state_change(
     .await?;
 
     tracing::info!(
-        "Host {} has changed use_admin_network state. {} use_admin_network_changed flag updated {updated} site_restart_ovs={site_restart_ovs} machine_setting={machine_setting:?} effective_restart_ovs={effective_restart_ovs}",
+        "Host {} has changed use_admin_network state. {} use_admin_network_changed flag updated {updated} site_restart_ovs={site_restart_ovs}",
         &mh_snapshot.host_snapshot.id,
-        if updated && effective_restart_ovs {
+        if updated && site_restart_ovs {
             "Process"
         } else {
             "Ignore"
         }
     );
 
-    if !updated || !effective_restart_ovs {
+    if !updated || !site_restart_ovs {
         return Ok(());
     }
 
