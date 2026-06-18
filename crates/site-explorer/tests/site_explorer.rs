@@ -50,7 +50,9 @@ use crate::env::Env;
 mod env;
 
 const LAST_RUN_MISSING_CREDENTIAL_KEY: &str = "machines/bmc/site/root";
-const LAST_RUN_MISSING_CREDENTIAL_MESSAGE: &str = "Missing credential machines/bmc/site/root";
+const LAST_RUN_MISSING_CREDENTIAL_CATEGORY: &str = "missing_credentials";
+const LAST_RUN_MISSING_CREDENTIAL_MESSAGE: &str =
+    "Site Explorer credentials are missing or invalid";
 
 trait EnvExt {
     fn new_machine(&self, mac: &str, vendor: &str) -> FakeMachine;
@@ -163,6 +165,9 @@ async fn test_site_explorer_records_last_run(
         endpoint_explorations: i64,
         endpoint_explorations_success: i64,
         endpoint_explorations_failed: i64,
+        failure_category: Option<&'static str>,
+        has_last_successful_finished_at: bool,
+        has_last_failed_finished_at: bool,
     }
 
     struct Case {
@@ -183,6 +188,9 @@ async fn test_site_explorer_records_last_run(
                 endpoint_explorations: 1,
                 endpoint_explorations_success: 1,
                 endpoint_explorations_failed: 0,
+                failure_category: None,
+                has_last_successful_finished_at: true,
+                has_last_failed_finished_at: false,
             },
         },
         Case {
@@ -194,6 +202,9 @@ async fn test_site_explorer_records_last_run(
                 endpoint_explorations: 0,
                 endpoint_explorations_success: 0,
                 endpoint_explorations_failed: 0,
+                failure_category: Some(LAST_RUN_MISSING_CREDENTIAL_CATEGORY),
+                has_last_successful_finished_at: true,
+                has_last_failed_finished_at: true,
             },
         },
     ];
@@ -229,9 +240,7 @@ async fn test_site_explorer_records_last_run(
                     .await
                     .expect_err("precondition failure should fail the run");
                 assert!(
-                    error
-                        .to_string()
-                        .contains(LAST_RUN_MISSING_CREDENTIAL_MESSAGE),
+                    error.to_string().contains(LAST_RUN_MISSING_CREDENTIAL_KEY),
                     "{}: unexpected error: {error}",
                     case.name
                 );
@@ -256,6 +265,30 @@ async fn test_site_explorer_records_last_run(
             "{}",
             case.name
         );
+        assert_eq!(
+            last_run.failure_category.as_deref(),
+            case.expected.failure_category,
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            last_run
+                .last_successful_finished_at
+                .as_deref()
+                .is_some_and(|time| !time.is_empty()),
+            case.expected.has_last_successful_finished_at,
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            last_run
+                .last_failed_finished_at
+                .as_deref()
+                .is_some_and(|time| !time.is_empty()),
+            case.expected.has_last_failed_finished_at,
+            "{}",
+            case.name
+        );
         if let Some(expected_error) = case.expected.error_contains {
             assert!(
                 last_run
@@ -263,6 +296,15 @@ async fn test_site_explorer_records_last_run(
                     .as_deref()
                     .is_some_and(|error| error.contains(expected_error)),
                 "{}: unexpected last-run error: {:?}",
+                case.name,
+                last_run.error
+            );
+            assert!(
+                !last_run
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains(LAST_RUN_MISSING_CREDENTIAL_KEY)),
+                "{}: last-run error leaked credential key: {:?}",
                 case.name,
                 last_run.error
             );

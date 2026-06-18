@@ -54,6 +54,8 @@ const SITE_EXPLORER_RUN_STATUS_PAGES: [&str; 3] = [
     "/admin/explored-endpoint/unpaired",
     "/admin/explored-endpoint/paired",
 ];
+const EXPECTED_MACHINE_RUN_STATUS_PAGE: &str = "/admin/expected-machine";
+const SANITIZED_CREDENTIAL_ERROR: &str = "Site Explorer credentials are missing or invalid";
 
 async fn get_page(app: &axum::Router, uri: &str) -> String {
     let response = app
@@ -88,14 +90,18 @@ async fn configure_default(env: &TestEnv, credential_type: RpcCredentialType) {
 async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
+    let finished_at = chrono::Utc::now();
     let last_run = SiteExplorerLastRun {
-        started_at: chrono::Utc::now(),
-        finished_at: chrono::Utc::now(),
+        started_at: finished_at,
+        finished_at,
         success: false,
-        error: Some("Missing credential machines/bmc/site/root".to_string()),
+        error: Some(SANITIZED_CREDENTIAL_ERROR.to_string()),
+        failure_category: Some("missing_credentials".to_string()),
         endpoint_explorations: 3,
         endpoint_explorations_success: 2,
         endpoint_explorations_failed: 1,
+        last_successful_finished_at: Some(finished_at),
+        last_failed_finished_at: Some(finished_at),
     };
     let mut txn = env.api().database_connection.begin().await.unwrap();
     db::site_explorer_run_status::upsert(&mut txn, &last_run)
@@ -103,20 +109,25 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    for uri in SITE_EXPLORER_RUN_STATUS_PAGES {
+    for uri in SITE_EXPLORER_RUN_STATUS_PAGES
+        .into_iter()
+        .chain(std::iter::once(EXPECTED_MACHINE_RUN_STATUS_PAGE))
+    {
         let body = get_page(&app, uri).await;
         assert!(body.contains("Last Site Explorer Run"), "{uri}");
         assert!(body.contains("Failed"), "{uri}");
-        assert!(
-            body.contains("Missing credential machines/bmc/site/root"),
-            "{uri}"
-        );
+        assert!(body.contains(SANITIZED_CREDENTIAL_ERROR), "{uri}");
+        assert!(!body.contains("machines/bmc/site/root"), "{uri}");
+        assert!(body.contains("<dt>Failure Category</dt>"), "{uri}");
+        assert!(body.contains("<dd>missing_credentials</dd>"), "{uri}");
         assert!(body.contains("<dt>Attempted</dt>"), "{uri}");
         assert!(body.contains("<dd>3</dd>"), "{uri}");
         assert!(body.contains("<dt>Successful</dt>"), "{uri}");
         assert!(body.contains("<dd>2</dd>"), "{uri}");
         assert!(body.contains("<dt>Errored</dt>"), "{uri}");
         assert!(body.contains("<dd>1</dd>"), "{uri}");
+        assert!(body.contains("<dt>Last Successful</dt>"), "{uri}");
+        assert!(body.contains("<dt>Last Failed</dt>"), "{uri}");
     }
 }
 
