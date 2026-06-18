@@ -1647,7 +1647,10 @@ impl SiteExplorer {
         self.endpoint_explorer
             .check_preconditions(metrics)
             .await
-            .map_err(|e| SiteExplorerError::internal(e.to_string()))
+            .map_err(|err| SiteExplorerError::EndpointExplorationError {
+                action: "check_preconditions",
+                err,
+            })
     }
 
     async fn update_explored_endpoints(
