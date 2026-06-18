@@ -3448,8 +3448,6 @@ message Machine {
   common.MachineId id = 1;
 
   reserved 4, 5, 6; // Used for timestamps in the past
-  reserved 49; // Was: optional DpfInfo dpf = 49;
-  reserved "dpf";
 
   // The current lifecycle state of the machine
   string state = 7;
@@ -3813,9 +3811,6 @@ message MachineIbInterface {
 }
 
 message DhcpDiscovery {
-  reserved 8, 9, 10;
-  reserved "address_family", "message_kind", "duid";
-
   string mac_address = 1;
   string relay_address = 2;
   optional string vendor_string = 3;
@@ -3862,9 +3857,6 @@ message ExpireDhcpLeaseResponse {
 }
 
 message DhcpRecord {
-  reserved 13, 14, 15;
-  reserved "ntp_servers", "dhcpv6_preferred_lifetime_secs", "dhcpv6_valid_lifetime_secs";
-
   common.MachineId machine_id = 1;
   common.MachineInterfaceId machine_interface_id = 2;
   common.NetworkSegmentId segment_id = 3;
@@ -4030,8 +4022,6 @@ message ManagedHostNetworkConfigRequest {
 
 message ManagedHostNetworkConfigResponse {
   reserved 1; // previously is_production_mode
-  reserved 22; // Was: repeated string ntp_servers = 22;
-  reserved "ntp_servers";
 
   // ASN and DHCP servers are not versioned, they are fixed on process start
 
@@ -7309,9 +7299,6 @@ message RackCapabilitiesSet {
 }
 
 message RackProfile {
-  reserved 5; // Was: string product_family = 5;
-  reserved "product_family";
-
   common.RackHardwareType rack_hardware_type = 1;
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
@@ -7396,11 +7383,6 @@ message MachineNVLinkGpuStatusObservation {
 }
 
 enum NmxcBrowseOperation {
-  reserved 4, 5, 6;
-  reserved "NMXC_BROWSE_OPERATION_PARTITION_INFO_LIST",
-    "NMXC_BROWSE_OPERATION_SWITCH_NODE_INFO_LIST",
-    "NMXC_BROWSE_OPERATION_GET_DOMAIN_PROPERTIES";
-
   NMXC_BROWSE_OPERATION_UNSPECIFIED = 0;
   NMXC_BROWSE_OPERATION_COMPUTE_NODE_INFO_LIST = 1;
   NMXC_BROWSE_OPERATION_GPU_INFO = 2;
