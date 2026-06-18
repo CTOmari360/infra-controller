@@ -36,7 +36,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::DpuData;
-use crate::errors::{ModelError, ModelResult, OperatorErrorSchema};
+use crate::errors::{ErrorCode, ErrorSubsystem, ModelError, ModelResult, OperatorError};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
@@ -1119,6 +1119,10 @@ pub enum EndpointExplorationError {
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
 
+    /// A known, intermittent HTTP 403 from the firmware-inventory endpoint on
+    /// DGX H100 BMCs ("Viking" is the internal code name). The variant name is
+    /// kept for backward-compatible serialization of stored reports; new
+    /// operator-facing text uses the real product name.
     #[error("VikingFWInventoryForbiddenError: {details}")]
     #[serde(rename_all = "PascalCase")]
     VikingFWInventoryForbiddenError {
@@ -1151,9 +1155,12 @@ pub enum EndpointExplorationError {
 }
 
 impl EndpointExplorationError {
-    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE: &'static str = "NICO-DPU-134";
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE: ErrorCode =
+        ErrorCode::nico(ErrorSubsystem::Dpu, 134);
     pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION: &'static str =
-        "Force-restart the DPU through Redfish, then re-run site exploration.";
+        "No action needed: site explorer automatically force-restarts the DPU to clear this \
+         known UEFI/BMC race and re-explores on its next run (~2 min). It escalates to a BMC \
+         reset if the empty BIOS attributes persist.";
 
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { .. })
@@ -1184,38 +1191,49 @@ impl EndpointExplorationError {
         )
     }
 
-    pub fn operator_error_schema(&self) -> OperatorErrorSchema {
-        OperatorErrorSchema::new(
-            self.operator_error_code(),
-            self.to_string(),
-            self.operator_mitigation().map(str::to_string),
-        )
-    }
-
-    pub fn operator_error_code(&self) -> &'static str {
+    /// Returns the consecutive count if this is an IntermittentUnauthorized error.
+    pub fn intermittent_unauthorized_count(&self) -> Option<u32> {
         match self {
-            EndpointExplorationError::ConnectionTimeout { .. } => "NICO-SITE-100",
-            EndpointExplorationError::ConnectionRefused { .. } => "NICO-SITE-101",
-            EndpointExplorationError::Unreachable { .. } => "NICO-SITE-102",
-            EndpointExplorationError::UnsupportedVendor { .. } => "NICO-SITE-120",
-            EndpointExplorationError::RedfishError { .. } => "NICO-SITE-130",
-            EndpointExplorationError::Unauthorized { .. } => "NICO-SITE-140",
-            EndpointExplorationError::MissingCredentials { .. } => "NICO-SITE-141",
-            EndpointExplorationError::SecretsEngineError { .. } => "NICO-SITE-142",
-            EndpointExplorationError::SetCredentials { .. } => "NICO-SITE-143",
-            EndpointExplorationError::MissingRedfish { .. } => "NICO-SITE-121",
-            EndpointExplorationError::MissingVendor => "NICO-SITE-122",
-            EndpointExplorationError::AvoidLockout => "NICO-SITE-144",
-            EndpointExplorationError::Other { .. } => "NICO-SITE-199",
-            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => "NICO-SITE-131",
+            EndpointExplorationError::IntermittentUnauthorized {
+                consecutive_count, ..
+            } => Some(*consecutive_count),
+            _ => None,
+        }
+    }
+}
+
+impl OperatorError for EndpointExplorationError {
+    fn operator_error_code(&self) -> ErrorCode {
+        // Every code in this module is a site-explorer code, so the subsystem is
+        // assumed rather than repeated per arm.
+        use ErrorSubsystem::SiteExplorer;
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. } => ErrorCode::nico(SiteExplorer, 100),
+            EndpointExplorationError::ConnectionRefused { .. } => ErrorCode::nico(SiteExplorer, 101),
+            EndpointExplorationError::Unreachable { .. } => ErrorCode::nico(SiteExplorer, 102),
+            EndpointExplorationError::UnsupportedVendor { .. } => ErrorCode::nico(SiteExplorer, 120),
+            EndpointExplorationError::MissingRedfish { .. } => ErrorCode::nico(SiteExplorer, 121),
+            EndpointExplorationError::MissingVendor => ErrorCode::nico(SiteExplorer, 122),
+            EndpointExplorationError::RedfishError { .. } => ErrorCode::nico(SiteExplorer, 130),
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => {
+                ErrorCode::nico(SiteExplorer, 131)
+            }
+            EndpointExplorationError::Unauthorized { .. } => ErrorCode::nico(SiteExplorer, 140),
+            EndpointExplorationError::MissingCredentials { .. } => ErrorCode::nico(SiteExplorer, 141),
+            EndpointExplorationError::SecretsEngineError { .. } => ErrorCode::nico(SiteExplorer, 142),
+            EndpointExplorationError::SetCredentials { .. } => ErrorCode::nico(SiteExplorer, 143),
+            EndpointExplorationError::AvoidLockout => ErrorCode::nico(SiteExplorer, 144),
+            EndpointExplorationError::IntermittentUnauthorized { .. } => {
+                ErrorCode::nico(SiteExplorer, 145)
+            }
+            EndpointExplorationError::Other { .. } => ErrorCode::nico(SiteExplorer, 199),
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
                 Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
             }
-            EndpointExplorationError::IntermittentUnauthorized { .. } => "NICO-SITE-145",
         }
     }
 
-    pub fn operator_mitigation(&self) -> Option<&'static str> {
+    fn operator_mitigation(&self) -> Option<&'static str> {
         match self {
             EndpointExplorationError::ConnectionTimeout { .. }
             | EndpointExplorationError::ConnectionRefused { .. }
@@ -1223,35 +1241,34 @@ impl EndpointExplorationError {
                 "Verify endpoint network reachability and that the BMC Redfish service is listening.",
             ),
             EndpointExplorationError::UnsupportedVendor { .. }
-            | EndpointExplorationError::MissingVendor => {
-                Some("Check the endpoint BMC vendor and whether NICo supports it.")
-            }
+            | EndpointExplorationError::MissingVendor => Some(
+                "Confirm the endpoint's BMC vendor and model are on the hardware compatibility \
+                 list (HCL) for your NICo deployment; an unsupported or unidentified BMC cannot \
+                 be explored.",
+            ),
             EndpointExplorationError::Unauthorized { .. }
             | EndpointExplorationError::MissingCredentials { .. }
             | EndpointExplorationError::SecretsEngineError { .. }
             | EndpointExplorationError::SetCredentials { .. }
-            | EndpointExplorationError::AvoidLockout => {
-                Some("Verify the BMC credentials configured for this endpoint.")
-            }
+            | EndpointExplorationError::AvoidLockout => Some(
+                "Set or correct this endpoint's BMC credentials with the Admin CLI \
+                 (`nico-admin-cli credential add-bmc`), then re-explore it with \
+                 `nico-admin-cli site-explorer refresh <bmc-ip>`.",
+            ),
             EndpointExplorationError::IntermittentUnauthorized { .. } => Some(
-                "Retry site exploration before changing BMC credentials; escalate if the unauthorized responses persist.",
+                "Transient: site explorer retries automatically on its next run (~2 min), or \
+                 force one now with `nico-admin-cli site-explorer refresh <bmc-ip>`. If \
+                 unauthorized responses persist across runs, correct the BMC credentials with \
+                 `nico-admin-cli credential add-bmc`.",
             ),
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
                 Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
             }
             EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => Some(
-                "Retry site exploration; this is a known intermittent Viking firmware inventory response.",
+                "No action needed: a known, intermittent DGX H100 firmware-inventory response \
+                 that clears on its own. Site explorer retries on its next run (~2 min); force \
+                 one with `nico-admin-cli site-explorer refresh <bmc-ip>` if it persists.",
             ),
-            _ => None,
-        }
-    }
-
-    /// Returns the consecutive count if this is an IntermittentUnauthorized error.
-    pub fn intermittent_unauthorized_count(&self) -> Option<u32> {
-        match self {
-            EndpointExplorationError::IntermittentUnauthorized {
-                consecutive_count, ..
-            } => Some(*consecutive_count),
             _ => None,
         }
     }
@@ -1718,13 +1735,16 @@ mod tests {
 
         let schema = error.operator_error_schema();
 
-        assert_eq!(schema.error_code, "NICO-SITE-145");
         assert_eq!(
-            schema.mitigation.as_deref(),
-            Some(
-                "Retry site exploration before changing BMC credentials; escalate if the unauthorized responses persist."
-            )
+            schema.error_code,
+            ErrorCode::nico(ErrorSubsystem::SiteExplorer, 145)
         );
+        assert_eq!(schema.error_code.to_string(), "NICO-SITEEXPLORER-145");
+        // The mitigation answers "how do I retry?" and "what does escalate mean?"
+        // with concrete Admin CLI commands.
+        let mitigation = schema.mitigation.as_deref().expect("has a mitigation");
+        assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("nico-admin-cli credential add-bmc"));
     }
 
     /// `find_version` locates the firmware version matching a component regex,

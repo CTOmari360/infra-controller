@@ -28,7 +28,7 @@ use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError};
 use librms::RackManagerError;
 use mac_address::MacAddress;
-use model::errors::{ModelError, OperatorErrorSchema};
+use model::errors::{ErrorCode, ErrorSubsystem, ModelError, OperatorError, OperatorErrorSchema};
 use model::hardware_info::HardwareInfoError;
 use model::network_devices::LldpError;
 use model::site_explorer::EndpointExplorationError;
@@ -339,15 +339,11 @@ impl CarbideError {
         CarbideError::Internal { message }
     }
 
-    pub fn operator_error_schema(&self) -> OperatorErrorSchema {
-        OperatorErrorSchema::new(
-            self.operator_error_code(),
-            self.to_string(),
-            self.operator_mitigation().map(str::to_string),
-        )
-    }
+}
 
-    fn operator_error_code(&self) -> &'static str {
+impl OperatorError for CarbideError {
+    fn operator_error_code(&self) -> ErrorCode {
+        use ErrorSubsystem::{Api, Redfish};
         match self {
             CarbideError::InvalidArgument(_)
             | CarbideError::VpcCapability(_)
@@ -355,27 +351,29 @@ impl CarbideError {
             | CarbideError::RpcDataConversionError(_)
             | CarbideError::MissingArgument(_)
             | CarbideError::NetworkSegmentDelete(_)
-            | CarbideError::BmcMacIpMismatch { .. } => "NICO-API-400",
-            CarbideError::PermissionDeniedError(_) => "NICO-API-403",
-            CarbideError::NotFoundError { .. } => "NICO-API-404",
+            | CarbideError::BmcMacIpMismatch { .. } => ErrorCode::nico(Api, 400),
+            CarbideError::ClientCertificateMissingInformation(_) => ErrorCode::nico(Api, 401),
+            CarbideError::PermissionDeniedError(_) => ErrorCode::nico(Api, 403),
+            CarbideError::NotFoundError { .. } => ErrorCode::nico(Api, 404),
             CarbideError::AlreadyFoundError { .. } | CarbideError::AlreadyInProgress(_) => {
-                "NICO-API-409"
+                ErrorCode::nico(Api, 409)
             }
             CarbideError::MaintenanceMode
             | CarbideError::UnhealthyHost
             | CarbideError::ConcurrentModificationError(_, _)
             | CarbideError::FailedPrecondition(_)
-            | CarbideError::AddressAlreadyInUse(_) => "NICO-API-412",
-            CarbideError::ClientCertificateMissingInformation(_) => "NICO-API-401",
-            CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => "NICO-API-429",
-            CarbideError::UnavailableError(_) => "NICO-API-503",
+            | CarbideError::AddressAlreadyInUse(_) => ErrorCode::nico(Api, 412),
+            CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
+                ErrorCode::nico(Api, 429)
+            }
+            CarbideError::UnavailableError(_) => ErrorCode::nico(Api, 503),
             CarbideError::RedfishError(error) if is_dpu_bios_attributes_not_ready(error) => {
                 EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
             }
             CarbideError::RedfishError(_) | CarbideError::RedfishClientCreation { .. } => {
-                "NICO-REDFISH-500"
+                ErrorCode::nico(Redfish, 500)
             }
-            _ => "NICO-API-500",
+            _ => ErrorCode::nico(Api, 500),
         }
     }
 
@@ -387,9 +385,10 @@ impl CarbideError {
             CarbideError::RedfishError(_) | CarbideError::RedfishClientCreation { .. } => {
                 Some("Check BMC reachability, credentials, and Redfish service health.")
             }
-            CarbideError::UnavailableError(_) => {
-                Some("Retry after the dependent service is healthy.")
-            }
+            CarbideError::UnavailableError(_) => Some(
+                "A dependent service is temporarily unavailable; the caller should retry the \
+                 request with backoff once it recovers.",
+            ),
             CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
                 Some("Check configured resource pools and available capacity.")
             }
@@ -518,7 +517,7 @@ fn status_from_carbide_error(error: &CarbideError) -> Status {
 }
 
 fn status_with_operator_error_schema(mut status: Status, schema: &OperatorErrorSchema) -> Status {
-    insert_ascii_metadata(&mut status, "nico-error-code", &schema.error_code);
+    insert_ascii_metadata(&mut status, "nico-error-code", &schema.error_code.to_string());
     insert_ascii_metadata(&mut status, "nico-error-text", &schema.text);
     if let Some(mitigation) = &schema.mitigation {
         insert_ascii_metadata(&mut status, "nico-error-mitigation", mitigation);

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::errors::OperatorErrorSchema;
+use model::errors::{OperatorError, OperatorErrorSchema};
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EthernetInterface, ExploredDpu,
@@ -358,7 +358,8 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
 impl From<OperatorErrorSchema> for rpc::site_explorer::OperatorErrorSchema {
     fn from(schema: OperatorErrorSchema) -> Self {
         Self {
-            error_code: schema.error_code,
+            // The wire/proto contract is the rendered `SYSTEM-SUBSYSTEM-CODE` string.
+            error_code: schema.error_code.to_string(),
             mitigation: schema.mitigation,
             text: schema.text,
         }

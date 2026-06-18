@@ -48,6 +48,7 @@ use model::machine_boot_interface::MachineBootInterface;
 use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
+use model::errors::OperatorError;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,

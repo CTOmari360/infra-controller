@@ -34,7 +34,7 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
 use mac_address::MacAddress;
-use model::errors::OperatorErrorSchema;
+use model::errors::{ErrorCode, ErrorSubsystem, OperatorError, OperatorErrorSchema};
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
@@ -340,7 +340,7 @@ impl RedfishClient {
             }
             Err(error) => {
                 let schema = OperatorErrorSchema::new(
-                    "NICO-SITE-130",
+                    ErrorCode::nico(ErrorSubsystem::SiteExplorer, 130),
                     format!("Failed to fetch machine setup status: {error}"),
                     None,
                 );
@@ -1308,7 +1308,7 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
         } if *status_code == http::StatusCode::FORBIDDEN && url.contains("FirmwareInventory") => {
             EndpointExplorationError::VikingFWInventoryForbiddenError {
                 details: format!(
-                    "HTTP {status_code} at {url} - this is a known, intermittent issue for Vikings."
+                    "HTTP {status_code} at {url} - this is a known, intermittent issue for DGX H100 BMCs."
                 ),
                 response_body: Some(response_body.clone()),
                 response_code: Some(status_code.as_u16()),
@@ -1412,7 +1412,7 @@ fn map_nv_redfish_explore_error(
                         {
                             EndpointExplorationError::VikingFWInventoryForbiddenError {
                                 details: format!(
-                                    "HTTP {status} at {url} - this is a known, intermittent issue for Vikings."
+                                    "HTTP {status} at {url} - this is a known, intermittent issue for DGX H100 BMCs."
                                 ),
                                 response_body: Some(text),
                                 response_code: Some(status.as_u16()),
