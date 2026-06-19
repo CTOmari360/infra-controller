@@ -22,6 +22,8 @@ futures-util = { workspace = true }
 hex = { workspace = true }
 md5 = { workspace = true }
 reqwest = { workspace = true }
+reqwest-middleware = { workspace = true }
+reqwest-tracing = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }

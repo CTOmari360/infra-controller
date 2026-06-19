@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;
-use reqwest::Client;
+use reqwest_middleware::ClientWithMiddleware as Client;
 use tokio::fs::File;
 
 #[derive(Clone, Debug)]
@@ -94,7 +94,13 @@ impl FirmwareDownloader {
 
         state.downloading.insert(filename_string.clone());
         if state.client.is_none() {
-            state.client = Some(Client::new());
+            // The `reqwest-tracing` middleware injects the current span's W3C trace context into
+            // every outgoing request (#2438).
+            state.client = Some(
+                reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+                    .with(reqwest_tracing::TracingMiddleware::default())
+                    .build(),
+            );
         }
 
         let filename = filename.to_path_buf();

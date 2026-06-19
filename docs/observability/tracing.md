@@ -28,6 +28,10 @@ costs.
     ```
   Leaving the OTLP endpoint configured while tracing is disabled costs almost nothing.
 - Transport is **OTLP/gRPC, plaintext**; nico-api cannot do OTLP/HTTP or originate TLS
+- nico-api **propagates W3C trace context** at its network boundaries: it reads `traceparent`/
+  `tracestate` from inbound REST and gRPC requests and continues that trace, and injects the same
+  headers into its outbound requests. Propagation links traces across services but does not by itself
+  enable recording (see [1.6](#16-w3c-trace-context-propagation)).
 
 ---
 
@@ -71,15 +75,17 @@ backends, plus the database work underneath them - which maps directly to the EP
 
 ### 1.3 How spans are selected (sampler)
 
-nico-api uses a custom `CarbideSpanSampler` wrapped as **`ParentBased`**:
+nico-api uses a custom `CarbideSpanSampler`:
 
 - A **root span** is recorded only if both are true:
   - the in-process `tracing_enabled` flag is on, from `[tracing] enabled = true` at startup or
     from the dynamic `tracing-enabled` setting
-  - the span's `code.namespace` begins with `carbide::`
-- **Child spans inherit the root's decision** (that's what `ParentBased` means), so once a
-  trace is sampled the whole call tree beneath it is captured - **except tokio spans, which are
-  always dropped** (they leak and would exhaust memory).
+  - the span carries the `carbide.trace_root` marker attribute, set explicitly on the request span and a few
+    deliberate roots (the state-controller reconcile loops, site-explorer)
+- **In-process child spans inherit the root's decision**, so once a trace is sampled the whole call tree beneath
+  it is captured - **except tokio spans, which are always dropped** (they leak and would exhaust memory).
+- For a span parented to a **remote** (ingress-extracted) trace, the decision stays local: an inbound `sampled`
+  flag does not override `tracing_enabled` (see §1.6).
 - The exporter resource is `service.name = carbide-api`; the tracer is named `carbide`.
 
 ### 1.4 How traces leave nico-api
@@ -105,6 +111,66 @@ nico-api's:
   instruments `retrieve_records`, among others.
 - **Resource / output:** `service.name = carbide-dns`; logs are JSON on stdout (not logfmt).
 - **Same transport constraints:** OTLP/gRPC, plaintext (`with_tonic`, no `tls` feature)
+
+### 1.6 W3C trace-context propagation
+
+nico-api accepts and produces **W3C Trace Context** headers (`traceparent`, `tracestate`) at its
+network boundaries, so a request already traced by another service stays one trace as it passes
+through nico-api. The standard `TraceContextPropagator` is installed once at startup
+(`crates/api-core/src/logging/setup.rs`); there is no custom header parsing.
+
+- **Ingress (REST + gRPC).** The shared per-request layer (`crates/api-core/src/logging/api_logs.rs`)
+  extracts any inbound `traceparent`/`tracestate` and makes the upstream span the parent of nico-api's
+  request span. REST and gRPC flow through this single layer, so both are covered. A missing or
+  malformed `traceparent` leaves the request span a fresh root.
+- **Egress.** When nico-api makes an outbound call from within a traced request, it injects the
+  current `traceparent`/`tracestate` so the downstream service can continue the trace. Covered:
+  - **gRPC** - Forge and NMX-C (`crates/rpc`), the NSM and power-shelf (PSM) backends
+    (`crates/component-manager`), and the NMX-C client pool (`crates/libnmxc`), through a shared tower
+    layer applied to every request.
+  - **HTTP** - the BMC/Redfish handler, machine-identity token exchange, admin-UI OAuth2, NMX-M, NRAS,
+    the MQTT OAuth2 token provider, and firmware downloads.
+- **Interaction with the enable flag.** `tracing-enabled` stays the master switch for what nico-api
+  *records*: an inbound `sampled` flag never turns recording on here. When it is on, the inbound
+  `trace_id` is inherited, so nico-api's spans join the caller's trace.
+- **Forwarding vs. recording.** Forwarding the context is separate from recording it, but today both
+  depend on the exporter being built:
+  - *Exporter built, tracing off:* records nothing, yet still forwards the inbound `trace_id`/`tracestate`
+    marked **not sampled** (`sampled=0`).
+  - *No endpoint configured (exporter not built):* does **not** forward at all, so the trace **breaks** at
+    this hop. **Known limitation.**
+- **Scope.** Trace context only (`traceparent`/`tracestate`).
+
+### 1.7 Adding a new network client
+
+Propagation is automatic on ingress but opt-in on egress, so keep this in mind when adding code:
+
+- **New ingress (a REST route or gRPC method): nothing to do.** Every inbound request flows through the
+  shared per-request layer (`crates/api-core/src/logging/api_logs.rs`), which extracts the inbound context
+  for you.
+- **New outbound gRPC client (tonic/hyper):** wrap its channel/service with
+  `trace_propagation::TraceInjectService` at construction — better, build through an existing shared
+  client that already wraps the transport (see `crates/rpc/src/forge_tls_client.rs`).
+- **New outbound HTTP client (`reqwest`):** build it through the `reqwest-tracing` middleware instead of using a
+  bare `reqwest::Client`. The wrapped client injects the current `traceparent`/`tracestate` into every request
+  automatically, so there is no per-call code:
+
+  ```rust
+  let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+      .with(reqwest_tracing::TracingMiddleware::default())
+      .build(); // -> reqwest_middleware::ClientWithMiddleware, a drop-in for request-building
+  let resp = client.get(url).send().await?;
+  ```
+
+  See `crates/nras/src/client.rs` for a real example.
+- **When another crate owns the HTTP call (manual fallback):** if the request is built and sent by code you
+  don't control — e.g. the `oauth2` client (`crates/api-web/src/auth.rs`), which owns its own `reqwest`
+  request — inject into that request's headers directly:
+
+  ```rust
+  trace_propagation::inject_current_context(request.headers_mut());
+  ```
+Injection is always a safe no-op when no trace is active, so it is safe to add unconditionally.
 
 ---
 
@@ -321,7 +387,7 @@ which of three states nico-api is in:
 
 This is the expensive mode the dev team warns about:
 
-- Because the sampler is `ParentBased`, a sampled root span pulls in its **entire child subtree**
+- Because a span's in-process children inherit its sampling decision, a sampled root span pulls in its **entire child subtree**
   (the component-manager, controller, and DB spans beneath it). A single traced
   operation can therefore produce many spans.
 - Costs land in several places: extra **CPU and memory** on nico-api, added **latency** on
@@ -377,7 +443,7 @@ annotation involved for traces
 | Sidecar injected but still no traces | Endpoint not set, or points somewhere other than `localhost:4317` | Set `[tracing] otlp_endpoint = "http://localhost:4317"` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://localhost:4317` on nico-api |
 | Traces reach the collector but not the backend | Collector exporter endpoint/TLS wrong | Check the exporter config; for remote backends configure TLS/mTLS on the collector |
 | Sudden resource/latency spike on nico-api | Tracing left on | `nico-admin-cli set tracing-enabled false`, or set `[tracing] enabled = false` and roll nico-api if runtime changes are disabled |
-| Spans arrive but request trees look sparse | The `carbide::` root-span nuance | Verify where the root span originates on a live environment |
+| Spans arrive but request trees look sparse | Only `carbide.trace_root`-marked spans start a recorded trace (§1.3) | Confirm the operation starts at a marked root span |
 
 ---
 

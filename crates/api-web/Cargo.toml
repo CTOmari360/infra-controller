@@ -38,6 +38,7 @@ carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-version = { path = "../version" }
 config-version = { path = "../config-version", features = ["sqlx"] }
+trace-propagation = { path = "../trace-propagation" }
 
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 ansi-to-html = { workspace = true }

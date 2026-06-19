@@ -1246,6 +1246,8 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "rsa 0.9.10",
  "rumqttc",
  "rustls",
@@ -1273,6 +1275,7 @@ dependencies = [
  "tonic-reflection",
  "tower",
  "tower-http",
+ "trace-propagation",
  "tracing",
  "tracing-log",
  "tracing-opentelemetry",
@@ -1492,6 +1495,7 @@ dependencies = [
  "tonic",
  "tower",
  "tower-http",
+ "trace-propagation",
  "tracing",
  "url",
  "urlencoding",
@@ -1878,6 +1882,8 @@ dependencies = [
  "hex",
  "md5 0.8.0",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "serde",
  "sqlx",
  "tokio",
@@ -2179,6 +2185,8 @@ dependencies = [
  "quick-xml 0.39.4",
  "regex",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "russh",
  "serde",
  "serde_json",
@@ -2683,6 +2691,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tower",
+ "trace-propagation",
  "tracing",
  "tryhard",
  "uuid",
@@ -3500,6 +3509,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "trace-propagation",
  "tracing",
  "uuid",
 ]
@@ -6504,6 +6514,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "trace-propagation",
  "tracing",
  "tracing-subscriber",
 ]
@@ -6516,6 +6527,8 @@ dependencies = [
  "async-trait",
  "http",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "serde",
  "serde_derive",
  "serde_json",
@@ -7054,6 +7067,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
+ "trace-propagation",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7355,6 +7369,8 @@ dependencies = [
  "jsonwebtoken",
  "mockito",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -9219,6 +9235,38 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams 0.5.0",
  "web-sys",
+]
+
+[[package]]
+name = "reqwest-middleware"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07bc3f1384cffa4f274dad2d4ddd73aed32fed8f786d96c6be8aa4e5fd3c3b58"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "http",
+ "reqwest 0.13.4",
+ "thiserror 2.0.18",
+ "tower-service",
+]
+
+[[package]]
+name = "reqwest-tracing"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e5af0cd6fc3d3c8f703d597af70b6e4e62432c63157b49419fa1ffaf481702"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "getrandom 0.2.17",
+ "http",
+ "matchit",
+ "opentelemetry",
+ "reqwest 0.13.4",
+ "reqwest-middleware",
+ "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -11649,6 +11697,21 @@ dependencies = [
  "tokio-test",
  "tower-layer",
  "tower-service",
+]
+
+[[package]]
+name = "trace-propagation"
+version = "0.0.0"
+dependencies = [
+ "http",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry_sdk",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]
