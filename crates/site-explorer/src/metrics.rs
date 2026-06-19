@@ -20,10 +20,12 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
+use carbide_metrics_utils::OtelView;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
+use opentelemetry_sdk::metrics::{Aggregation, InstrumentKind};
 
 use super::config::SiteExplorerConfig;
 
@@ -246,6 +248,30 @@ impl SiteExplorationMetrics {
             .entry(reason.to_string())
             .or_default() += 1;
     }
+}
+
+/// Histogram bucket boundaries for site explorer duration metrics, in milliseconds.
+///
+/// A full site explorer iteration can run for many minutes on large sites. The
+/// default OpenTelemetry histogram buckets top out at 10 seconds, which puts
+/// most production observations in the `+Inf` bucket.
+const SITE_EXPLORER_DURATION_HISTOGRAM_BOUNDARIES_MS: &[f64] = &[
+    1_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0, 300_000.0, 600_000.0, 1_800_000.0,
+    3_600_000.0,
+];
+
+/// Configures histogram buckets for site explorer latency metrics.
+pub fn site_explorer_latency_histogram_view(
+    name_filter: &'static str,
+) -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        name_filter,
+        Some(InstrumentKind::Histogram),
+        Aggregation::ExplicitBucketHistogram {
+            boundaries: SITE_EXPLORER_DURATION_HISTOGRAM_BOUNDARIES_MS.to_vec(),
+            record_min_max: true,
+        },
+    )
 }
 
 /// Instruments that are used by the Site Explorer
@@ -734,6 +760,21 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
         EndpointExplorationError::IntermittentUnauthorized { .. } => "intermittent_unauthorized",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn site_explorer_latency_histogram_views_build() {
+        site_explorer_latency_histogram_view("carbide_site_explorer_iteration_latency")
+            .expect("iteration latency view must build");
+        site_explorer_latency_histogram_view("*site_explorer*latency*")
+            .expect("site explorer latency glob view must build");
+        site_explorer_latency_histogram_view("carbide_endpoint_exploration_duration")
+            .expect("endpoint exploration duration view must build");
+    }
 }
 
 /// Stores Metric data shared between SiteExplorer and the OpenTelemetry background task
