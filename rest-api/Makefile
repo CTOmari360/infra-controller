@@ -1,21 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-.PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers
+.PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers fix-source-headers
 .PHONY: build docker-build docker-build-local
-.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow migrate nico-mock-server-build nico-mock-server-start nico-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
+.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
 
@@ -34,8 +22,9 @@ POSTGRES_DB := nicotest
 POSTGRES_IMAGE := postgres:14.4-alpine
 
 # Helm chart configuration (for kind-reset-helm / helm-* targets)
-UMBRELLA_CHART := helm/charts/nico-rest
-SITE_AGENT_CHART := helm/charts/nico-rest-site-agent
+UMBRELLA_CHART := ../helm/rest/nico-rest
+SITE_AGENT_CHART := ../helm/rest/nico-rest-site-agent
+MCP_CHART := ../helm/rest/nico-mcp
 
 HELM_SET := --set global.image.repository=$(IMAGE_REGISTRY) \
 	--set global.image.tag=$(IMAGE_TAG) \
@@ -70,7 +59,7 @@ postgres-down:
 clean:
 	@echo "Cleaning up test resources..."
 	-$(MAKE) postgres-down
-	-$(MAKE) nico-mock-server-stop
+	-$(MAKE) core-mock-server-stop
 	-$(MAKE) flow-mock-server-stop
 	@echo "Stopping kind cluster..."
 	-$(MAKE) kind-down
@@ -84,6 +73,9 @@ clean:
 
 check-source-headers:
 	python3 scripts/check_source_headers.py
+
+fix-source-headers:
+	python3 scripts/check_source_headers.py --fix
 
 ensure-postgres:
 	@docker inspect $(POSTGRES_CONTAINER_NAME) > /dev/null 2>&1 || $(MAKE) postgres-up
@@ -131,11 +123,11 @@ test-db:
 	$(MAKE) ensure-postgres
 	cd db && go test -p 1 ./... -count=1
 
-nico-mock-server-build:
+core-mock-server-build:
 	mkdir -p build
 	cd site-agent/cmd/mock-core && go build -o ../../../build/mock-core .
 
-nico-mock-server-start: nico-mock-server-build
+core-mock-server-start: core-mock-server-build
 	-lsof -ti:11079 | xargs kill -9 2>/dev/null
 	./build/mock-core -tout 0 > build/mock-core.log 2>&1 & echo $$! > build/mock-core.pid
 	@echo "Waiting for gRPC server to start..."
@@ -150,7 +142,7 @@ nico-mock-server-start: nico-mock-server-build
 	echo "Timeout waiting for Mock Core gRPC server to start"; \
 	exit 1
 
-nico-mock-server-stop:
+core-mock-server-stop:
 	-kill $$(cat build/mock-core.pid) 2>/dev/null
 	-rm -f build/mock-core.pid
 
@@ -177,9 +169,9 @@ flow-mock-server-stop:
 	-kill $$(cat build/mock-flow.pid) 2>/dev/null
 	-rm -f build/mock-flow.pid
 
-test-site-agent: nico-mock-server-start flow-mock-server-start
+test-site-agent: core-mock-server-start flow-mock-server-start
 	cd site-agent/pkg/components && CGO_ENABLED=1 go test -race -p 1 ./... -count=1 ; \
-	ret=$$? ; cd ../../.. && $(MAKE) nico-mock-server-stop flow-mock-server-stop ; exit $$ret
+	ret=$$? ; cd ../../.. && $(MAKE) core-mock-server-stop flow-mock-server-stop ; exit $$ret
 
 test-api:
 	$(MAKE) ensure-postgres
@@ -198,7 +190,37 @@ test-cert-manager:
 test-site-workflow:
 	cd site-workflow && go test -p 1 ./... -count=1
 
-test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent
+test-flow:
+	$(MAKE) ensure-postgres
+	cd flow && \
+		DB_HOST=localhost \
+		DB_PORT=$(POSTGRES_PORT) \
+		DB_USER=$(POSTGRES_USER) \
+		DB_PASSWORD=$(POSTGRES_PASSWORD) \
+		DB_NAME=$(POSTGRES_DB) \
+		go test -p 1 ./... -count=1
+
+test-powershelf-manager:
+	$(MAKE) ensure-postgres
+	cd powershelf-manager && \
+		DB_HOST=localhost \
+		DB_PORT=$(POSTGRES_PORT) \
+		DB_USER=$(POSTGRES_USER) \
+		DB_PASSWORD=$(POSTGRES_PASSWORD) \
+		DB_NAME=$(POSTGRES_DB) \
+		go test -p 1 ./... -count=1
+
+test-nvswitch-manager:
+	$(MAKE) ensure-postgres
+	cd nvswitch-manager && \
+		DB_HOST=localhost \
+		DB_PORT=$(POSTGRES_PORT) \
+		DB_USER=$(POSTGRES_USER) \
+		DB_PASSWORD=$(POSTGRES_PASSWORD) \
+		DB_NAME=$(POSTGRES_DB) \
+		go test -p 1 ./... -count=1
+
+test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent test-flow test-powershelf-manager test-nvswitch-manager
 
 build:
 	mkdir -p $(BUILD_DIR)
@@ -210,12 +232,20 @@ build:
 	cd db && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-extldflags '-static'" -o ../$(BUILD_DIR)/migrations ./cmd/migrations
 	cd cert-manager && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-extldflags '-static'" -o ../$(BUILD_DIR)/credsmgr ./cmd/credsmgr
 	cd cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-extldflags '-static'" -o ../$(BUILD_DIR)/nicocli ./cmd/cli
+	cd mcp && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-extldflags '-static'" -o ../$(BUILD_DIR)/nico-mcp ./cmd/nico-mcp
 
 INSTALL_DIR ?= $(shell go env GOPATH)/bin
 
 nico-cli:
 	go build -o $(INSTALL_DIR)/nicocli ./cli/cmd/cli
 	@echo "Installed nicocli to $(INSTALL_DIR)/nicocli"
+
+# Build and install the standalone MCP server binary. It runs as its own
+# process; `nicocli mcp` prints these build/run instructions but does not
+# launch it.
+nico-mcp:
+	go build -o $(INSTALL_DIR)/nico-mcp ./mcp/cmd/nico-mcp
+	@echo "Installed nico-mcp to $(INSTALL_DIR)/nico-mcp"
 
 docker-build:
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-api:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-api .
@@ -227,6 +257,7 @@ docker-build:
 	docker build -t $(IMAGE_REGISTRY)/nico-flow:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-flow .
 	docker build -t $(IMAGE_REGISTRY)/nico-psm:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-psm .
 	docker build -t $(IMAGE_REGISTRY)/nico-nsm:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-nsm .
+	docker build -t $(IMAGE_REGISTRY)/nico-mcp:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-mcp .
 
 core-proto: core-proto-fetch core-proto-fmt core-protogen
 
@@ -235,22 +266,13 @@ core-proto-clean:
 	rm -rf workflow-schema/site-agent/workflows/v1/*_nico.proto
 	rm -rf workflow-schema/schema/site-agent/workflows/v1/*.pb.go
 
-core-proto-repo ?= NVIDIA/infra-controller-core
-core-proto-repo-ssh:=ssh://git@github.com/$(core-proto-repo).git
-core-proto-ref ?= origin/main
 core-proto-fetch:
-	@echo "Fetching Core protobuf files from $(core-proto-repo-ssh) at $(core-proto-ref). Customize with make core-proto-repo=your-repo core-proto-ref=your-ref"
-	if [ -d "nico-core" ]; then rm -rf nico-core; fi
-	git clone $(core-proto-repo-ssh) nico-core;
-	cd nico-core && git fetch $(core-proto-repo-ssh) && git reset --hard $(core-proto-ref);
-	ls nico-core/crates/rpc/proto
-	@for file in nico-core/crates/rpc/proto/*.proto; do \
+	@for file in ../crates/rpc/proto/*.proto; do \
 		cp "$$file" "workflow-schema/site-agent/workflows/v1/$$(basename "$$file" .proto)_nico.proto"; \
 		echo "Copied: $$file"; \
 	done
 	mv workflow-schema/site-agent/workflows/v1/forge_nico.proto workflow-schema/site-agent/workflows/v1/nico_nico.proto
 	echo "Successfully copied Core protobuf files"
-	rm -rf nico-core
 
 core-proto-fmt:
 	@echo "Formatting Core protobuf files"
@@ -262,12 +284,12 @@ core-protogen:
 	go fmt ./...
 
 flow-proto:
-	FLOW_DIR=flow \
+	FLOW_DIR=flow; \
 	ls "$${FLOW_DIR}/proto/v1"; \
 	for file in "$${FLOW_DIR}"/proto/v1/*.proto; do \
 		cp "$$file" "workflow-schema/flow/proto/v1/"; \
 		echo "Copied: $$file"; \
-		./workflow-schema/scripts/add-go-package-option.sh "workflow-schema/flow/proto/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow"; \
+		./workflow-schema/scripts/add-go-package-option.sh "workflow-schema/flow/proto/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow"; \
 	done
 
 flow-protogen:
@@ -281,7 +303,7 @@ flow-protogen:
 
 .PHONY: kind-up kind-down kind-deploy kind-load kind-apply kind-redeploy kind-status kind-logs kind-reset kind-reset-infra kind-reset-kustomize kind-reset-helm kind-verify setup-site-agent test-simple-sdk-example
 .PHONY: deploy-overlay-api deploy-overlay-cert-manager deploy-overlay-site-manager deploy-overlay-workflow
-.PHONY: helm-lint helm-template helm-deploy helm-deploy-site-agent helm-deploy-all helm-redeploy helm-verify helm-verify-site-agent helm-uninstall
+.PHONY: helm-lint helm-template helm-deploy helm-deploy-site-agent helm-deploy-mcp helm-deploy-all helm-redeploy helm-verify helm-verify-site-agent helm-uninstall
 
 # Kind cluster configuration
 KIND_CLUSTER_NAME := nico-rest-local
@@ -300,6 +322,7 @@ docker-build-local:
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-mock-core:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-rest-mock-core .
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-db:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-rest-db .
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-cert-manager:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-rest-cert-manager .
+	docker build -t $(IMAGE_REGISTRY)/nico-mcp:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-mcp .
 
 # Create kind cluster with port mappings
 kind-up:
@@ -323,6 +346,7 @@ kind-load:
 	kind load docker-image $(IMAGE_REGISTRY)/nico-rest-mock-core:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
 	kind load docker-image $(IMAGE_REGISTRY)/nico-rest-db:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
 	kind load docker-image $(IMAGE_REGISTRY)/nico-rest-cert-manager:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
+	kind load docker-image $(IMAGE_REGISTRY)/nico-mcp:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
 
 # Apply kustomize manifests and wait for readiness
 kind-apply:
@@ -527,6 +551,7 @@ kind-reset-helm: kind-reset-infra
 	@echo "Deploying app services via Helm charts..."
 	$(MAKE) helm-deploy
 	$(MAKE) helm-deploy-site-agent
+	$(MAKE) helm-deploy-mcp
 	@echo ""
 	@echo "================================================================================"
 	@echo "Deployment complete! (Helm)"
@@ -546,12 +571,15 @@ kind-reset: kind-reset-helm
 helm-lint:
 	helm lint $(UMBRELLA_CHART)/ $(HELM_SET) $(HELM_SET_KEYCLOAK)
 	helm lint $(SITE_AGENT_CHART)/ $(HELM_SET)
+	helm lint $(MCP_CHART)/ $(HELM_SET)
 
 helm-template:
 	@echo "--- nico-rest (umbrella) ---"
 	helm template nico-rest $(UMBRELLA_CHART)/ $(HELM_SET) $(HELM_SET_KEYCLOAK) --namespace nico-rest
 	@echo "--- nico-rest-site-agent ---"
 	helm template nico-rest-site-agent $(SITE_AGENT_CHART)/ $(HELM_SET) --namespace nico-rest
+	@echo "--- nico-mcp ---"
+	helm template nico-mcp $(MCP_CHART)/ $(HELM_SET) --namespace nico-rest
 
 # Deploy umbrella chart (api + workflow + site-manager + db)
 # Note: images must be loaded into kind before calling this (kind-load or kind-reset-infra)
@@ -577,8 +605,18 @@ helm-deploy-site-agent:
 	@echo "Waiting for site-agent to stabilize..."
 	kubectl -n nico-rest rollout status statefulset/nico-rest-site-agent --timeout=120s
 
-# Deploy everything (umbrella + site-agent)
-helm-deploy-all: helm-deploy helm-deploy-site-agent
+# Deploy the standalone MCP server chart. The server is parameter-driven; for
+# local dev we point its default base URL at the in-cluster API so a tool call
+# only needs to supply org + token (a per-call base_url still overrides this).
+helm-deploy-mcp:
+	helm upgrade --install nico-mcp $(MCP_CHART)/ \
+		--namespace nico-rest --create-namespace $(HELM_SET) \
+		--set config.baseURL=http://nico-rest-api:8388 \
+		--set config.apiName=nico \
+		--wait --timeout 2m
+
+# Deploy everything (umbrella + site-agent + mcp)
+helm-deploy-all: helm-deploy helm-deploy-site-agent helm-deploy-mcp
 
 # Rebuild images and redeploy umbrella chart via Helm (excludes site-agent; use helm-deploy-site-agent separately)
 helm-redeploy: docker-build-local kind-load helm-deploy
@@ -601,6 +639,7 @@ helm-verify-site-agent:
 	kubectl -n nico-rest rollout status statefulset/nico-rest-site-agent --timeout=120s
 
 helm-uninstall:
+	-helm uninstall nico-mcp --namespace nico-rest
 	-helm uninstall nico-rest-site-agent --namespace nico-rest
 	-helm uninstall nico-rest --namespace nico-rest
 
@@ -671,7 +710,7 @@ generate-sdk:
 
 # Validate OpenAPI spec using Redocly CLI (Docker)
 lint-openapi:
-	npx @redocly/cli lint ./openapi/spec.yaml
+	npx @redocly/cli lint --skip-rule=no-ambiguous-paths ./openapi/spec.yaml
 
 # Preview OpenAPI spec in Redoc UI (Docker)
 preview-openapi:

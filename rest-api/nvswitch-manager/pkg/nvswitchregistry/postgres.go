@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nvswitchregistry
 
@@ -23,10 +9,11 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/common/vendor"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/objects/bmc"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/objects/nvos"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/objects/nvswitch"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/common/vendor"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/bmc"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/nvos"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/nvswitch"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -50,15 +37,15 @@ func NewPostgresRegistry(db *bun.DB) *PostgresRegistry {
 type NVSwitchModel struct {
 	bun.BaseModel `bun:"table:nvswitch,alias:ns"`
 
-	UUID           uuid.UUID `bun:"uuid,pk,type:uuid"`
-	Vendor         int       `bun:"vendor,notnull"`
-	BMCMACAddress  string    `bun:"bmc_mac_address,notnull"`
-	BMCIPAddress   string    `bun:"bmc_ip_address,notnull"`
-	BMCPort        int       `bun:"bmc_port,notnull,default:443"`
-	NVOSMACAddress string    `bun:"nvos_mac_address,notnull"`
-	NVOSIPAddress  string    `bun:"nvos_ip_address,notnull"`
-	NVOSPort       int       `bun:"nvos_port,notnull,default:22"`
-	RackID         string    `bun:"rack_id"`
+	UUID           uuid.UUID       `bun:"uuid,pk,type:uuid"`
+	Vendor         int             `bun:"vendor,notnull"`
+	BMCMACAddress  string          `bun:"bmc_mac_address,notnull"`
+	BMCIPAddress   sqltypes.IPAddr `bun:"bmc_ip_address,notnull,type:inet"`
+	BMCPort        int             `bun:"bmc_port,notnull,default:443"`
+	NVOSMACAddress string          `bun:"nvos_mac_address,notnull"`
+	NVOSIPAddress  sqltypes.IPAddr `bun:"nvos_ip_address,notnull,type:inet"`
+	NVOSPort       int             `bun:"nvos_port,notnull,default:22"`
+	RackID         string          `bun:"rack_id"`
 }
 
 // Start initializes the registry.
@@ -103,10 +90,10 @@ func (r *PostgresRegistry) Register(ctx context.Context, tray *nvswitch.NVSwitch
 		if err == nil {
 			// Update existing entry
 			existing.Vendor = int(tray.Vendor.Code)
-			existing.BMCIPAddress = tray.BMC.IP.String()
+			existing.BMCIPAddress = sqltypes.IPAddr(tray.BMC.IP)
 			existing.BMCPort = tray.BMC.GetPort()
 			existing.NVOSMACAddress = tray.NVOS.MAC.String()
-			existing.NVOSIPAddress = tray.NVOS.IP.String()
+			existing.NVOSIPAddress = sqltypes.IPAddr(tray.NVOS.IP)
 			existing.NVOSPort = tray.NVOS.GetPort()
 			existing.RackID = tray.RackID
 
@@ -136,10 +123,10 @@ func (r *PostgresRegistry) Register(ctx context.Context, tray *nvswitch.NVSwitch
 			UUID:           tray.UUID,
 			Vendor:         int(tray.Vendor.Code),
 			BMCMACAddress:  bmcMAC,
-			BMCIPAddress:   tray.BMC.IP.String(),
+			BMCIPAddress:   sqltypes.IPAddr(tray.BMC.IP),
 			BMCPort:        tray.BMC.GetPort(),
 			NVOSMACAddress: tray.NVOS.MAC.String(),
-			NVOSIPAddress:  tray.NVOS.IP.String(),
+			NVOSIPAddress:  sqltypes.IPAddr(tray.NVOS.IP),
 			NVOSPort:       tray.NVOS.GetPort(),
 			RackID:         tray.RackID,
 		}
@@ -248,9 +235,9 @@ func modelToTray(m *NVSwitchModel) (*nvswitch.NVSwitchTray, error) {
 		return nil, fmt.Errorf("invalid BMC MAC address %s: %w", m.BMCMACAddress, err)
 	}
 
-	bmcIP := net.ParseIP(m.BMCIPAddress)
+	bmcIP := m.BMCIPAddress.IP()
 	if bmcIP == nil {
-		return nil, fmt.Errorf("invalid BMC IP address: %s", m.BMCIPAddress)
+		return nil, fmt.Errorf("invalid BMC IP address: %s", m.BMCIPAddress.String())
 	}
 
 	nvosMAC, err := net.ParseMAC(m.NVOSMACAddress)
@@ -258,9 +245,9 @@ func modelToTray(m *NVSwitchModel) (*nvswitch.NVSwitchTray, error) {
 		return nil, fmt.Errorf("invalid NVOS MAC address %s: %w", m.NVOSMACAddress, err)
 	}
 
-	nvosIP := net.ParseIP(m.NVOSIPAddress)
+	nvosIP := m.NVOSIPAddress.IP()
 	if nvosIP == nil {
-		return nil, fmt.Errorf("invalid NVOS IP address: %s", m.NVOSIPAddress)
+		return nil, fmt.Errorf("invalid NVOS IP address: %s", m.NVOSIPAddress.String())
 	}
 
 	bmcObj, err := bmc.NewFromAddr(bmcMAC, bmcIP, nil)

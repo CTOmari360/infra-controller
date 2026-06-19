@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 const (
@@ -61,30 +47,29 @@ var (
 type ExpectedMachine struct {
 	bun.BaseModel `bun:"table:expected_machine,alias:em"`
 
-	ID                       uuid.UUID         `bun:"id,pk"`
-	SiteID                   uuid.UUID         `bun:"site_id,type:uuid,notnull"`
-	Site                     *Site             `bun:"rel:belongs-to,join:site_id=id"`
-	BmcMacAddress            string            `bun:"bmc_mac_address,notnull"`
-	ChassisSerialNumber      string            `bun:"chassis_serial_number,notnull"`
-	SkuID                    *string           `bun:"sku_id"`
-	Sku                      *SKU              `bun:"rel:belongs-to,join:sku_id=id"`
-	MachineID                *string           `bun:"machine_id"`
-	Machine                  *Machine          `bun:"rel:belongs-to,join:machine_id=id"`
-	FallbackDpuSerialNumbers []string          `bun:"fallback_dpu_serial_numbers,array"`
-	BmcIpAddress             *string           `bun:"bmc_ip_address"`
-	RackID                   *string           `bun:"rack_id"`
-	Name                     *string           `bun:"name"`
-	Manufacturer             *string           `bun:"manufacturer"`
-	Model                    *string           `bun:"model"`
-	Description              *string           `bun:"description"`
-	FirmwareVersion          *string           `bun:"firmware_version"`
-	SlotID                   *int32            `bun:"slot_id"`
-	TrayIdx                  *int32            `bun:"tray_idx"`
-	HostID                   *int32            `bun:"host_id"`
-	Labels                   map[string]string `bun:"labels,type:jsonb"`
-	Created                  time.Time         `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated                  time.Time         `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	CreatedBy                uuid.UUID         `bun:"type:uuid,notnull"`
+	ID                       uuid.UUID `bun:"id,pk"`
+	SiteID                   uuid.UUID `bun:"site_id,type:uuid,notnull"`
+	Site                     *Site     `bun:"rel:belongs-to,join:site_id=id"`
+	BmcMacAddress            string    `bun:"bmc_mac_address,notnull"`
+	ChassisSerialNumber      string    `bun:"chassis_serial_number,notnull"`
+	SkuID                    *string   `bun:"sku_id"`
+	Sku                      *SKU      `bun:"rel:belongs-to,join:sku_id=id"`
+	MachineID                *string   `bun:"machine_id"`
+	Machine                  *Machine  `bun:"rel:belongs-to,join:machine_id=id"`
+	FallbackDpuSerialNumbers []string  `bun:"fallback_dpu_serial_numbers,array"`
+	BmcIpAddress             *string   `bun:"bmc_ip_address"`
+	RackID                   *string   `bun:"rack_id"`
+	Name                     *string   `bun:"name"`
+	Manufacturer             *string   `bun:"manufacturer"`
+	Model                    *string   `bun:"model"`
+	Description              *string   `bun:"description"`
+	SlotID                   *int32    `bun:"slot_id"`
+	TrayIdx                  *int32    `bun:"tray_idx"`
+	HostID                   *int32    `bun:"host_id"`
+	Labels                   Labels    `bun:"labels,type:jsonb"`
+	Created                  time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated                  time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	CreatedBy                uuid.UUID `bun:"type:uuid,notnull"`
 }
 
 // ExpectedMachineCredentials carries the BMC credentials for one
@@ -125,9 +110,6 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	if em.Description != nil {
 		proto.Description = em.Description
 	}
-	if em.FirmwareVersion != nil {
-		proto.FirmwareVersion = em.FirmwareVersion
-	}
 	if em.SlotID != nil {
 		proto.SlotId = em.SlotID
 	}
@@ -145,18 +127,23 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 		proto.BmcPassword = *creds.Password
 	}
 
-	if em.Labels != nil {
-		protoLabels := make([]*cwssaws.Label, 0, len(em.Labels))
-		for k, v := range em.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
-		proto.Metadata = &cwssaws.Metadata{
-			Labels: protoLabels,
-		}
+	metadata := &cwssaws.Metadata{
+		Labels: expectedComponentLabelsInput{
+			Manufacturer: em.Manufacturer,
+			Model:        em.Model,
+			SlotID:       em.SlotID,
+			TrayIdx:      em.TrayIdx,
+			HostID:       em.HostID,
+			Labels:       em.Labels,
+		}.ToProto(),
 	}
+	if em.Name != nil {
+		metadata.Name = *em.Name
+	}
+	if em.Description != nil {
+		metadata.Description = *em.Description
+	}
+	proto.Metadata = metadata
 
 	return proto
 }
@@ -192,11 +179,10 @@ func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachi
 	em.Manufacturer = proto.Manufacturer
 	em.Model = proto.Model
 	em.Description = proto.Description
-	em.FirmwareVersion = proto.FirmwareVersion
 	em.SlotID = proto.SlotId
 	em.TrayIdx = proto.TrayIdx
 	em.HostID = proto.HostId
-	em.Labels = LabelsFromProtoMetadata(proto.Metadata)
+	em.Labels.FromProto(proto.Metadata.GetLabels())
 }
 
 // ExpectedMachineCreateInput input parameters for Create method
@@ -214,7 +200,6 @@ type ExpectedMachineCreateInput struct {
 	Manufacturer             *string
 	Model                    *string
 	Description              *string
-	FirmwareVersion          *string
 	SlotID                   *int32
 	TrayIdx                  *int32
 	HostID                   *int32
@@ -236,7 +221,6 @@ type ExpectedMachineUpdateInput struct {
 	Manufacturer             *string
 	Model                    *string
 	Description              *string
-	FirmwareVersion          *string
 	SlotID                   *int32
 	TrayIdx                  *int32
 	HostID                   *int32
@@ -255,7 +239,6 @@ type ExpectedMachineClearInput struct {
 	Manufacturer             bool
 	Model                    bool
 	Description              bool
-	FirmwareVersion          bool
 	SlotID                   bool
 	TrayIdx                  bool
 	HostID                   bool
@@ -379,7 +362,6 @@ func (emsd ExpectedMachineSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx,
 			Manufacturer:             input.Manufacturer,
 			Model:                    input.Model,
 			Description:              input.Description,
-			FirmwareVersion:          input.FirmwareVersion,
 			SlotID:                   input.SlotID,
 			TrayIdx:                  input.TrayIdx,
 			HostID:                   input.HostID,
@@ -669,10 +651,6 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 			em.Description = input.Description
 			columnsSet["description"] = true
 		}
-		if input.FirmwareVersion != nil {
-			em.FirmwareVersion = input.FirmwareVersion
-			columnsSet["firmware_version"] = true
-		}
 		if input.SlotID != nil {
 			em.SlotID = input.SlotID
 			columnsSet["slot_id"] = true
@@ -788,10 +766,6 @@ func (emsd ExpectedMachineSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Ex
 	if input.Description {
 		em.Description = nil
 		updatedFields = append(updatedFields, "description")
-	}
-	if input.FirmwareVersion {
-		em.FirmwareVersion = nil
-		updatedFields = append(updatedFields, "firmware_version")
 	}
 	if input.SlotID {
 		em.SlotID = nil

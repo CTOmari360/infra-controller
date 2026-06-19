@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -26,15 +12,16 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -66,6 +53,8 @@ func testExpectedMachineInitDB(t *testing.T) *cdb.Session {
 
 	// Then reset child tables that depend on parent tables
 	err = dbSession.DB.ResetModel(ctx, (*cdbm.TenantAccount)(nil))
+	assert.Nil(t, err)
+	err = dbSession.DB.ResetModel(ctx, (*cdbm.TenantSite)(nil))
 	assert.Nil(t, err)
 	err = dbSession.DB.ResetModel(ctx, (*cdbm.SKU)(nil))
 	assert.Nil(t, err)
@@ -190,7 +179,7 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 	// Helper function to create mock user
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -215,8 +204,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:                   site.ID.String(),
 				BmcMacAddress:            "00:11:22:33:44:55",
-				DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:       cdb.GetStrPtr("password"),
+				DefaultBmcUsername:       cutil.GetPtr("admin"),
+				DefaultBmcPassword:       cutil.GetPtr("password"),
 				ChassisSerialNumber:      "CHASSIS123",
 				FallbackDPUSerialNumbers: []string{"DPU001", "DPU002"},
 				Labels:                   map[string]string{"env": "test"},
@@ -233,11 +222,11 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:                   site.ID.String(),
 				BmcMacAddress:            "00:11:22:33:44:66",
-				DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:       cdb.GetStrPtr("password"),
+				DefaultBmcUsername:       cutil.GetPtr("admin"),
+				DefaultBmcPassword:       cutil.GetPtr("password"),
 				ChassisSerialNumber:      "CHASSIS124",
 				FallbackDPUSerialNumbers: []string{"DPU001", "DPU002"},
-				SkuID:                    cdb.GetStrPtr("test-sku-uuid-1"),
+				SkuID:                    cutil.GetPtr("test-sku-uuid-1"),
 				Labels:                   map[string]string{"env": "test"},
 			},
 			setupContext: func(c echo.Context) {
@@ -252,8 +241,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              site.ID.String(),
 				BmcMacAddress:       "00:11:22:33:44:77",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "CHASSIS125",
 			},
 			setupContext: func(c echo.Context) {
@@ -268,8 +257,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              site.ID.String(),
 				BmcMacAddress:       "00:11:22:33:44", // Too short
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "CHASSIS126",
 			},
 			setupContext: func(c echo.Context) {
@@ -284,8 +273,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              "12345678-1234-1234-1234-123456789099",
 				BmcMacAddress:       "00:11:22:33:44:88",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "CHASSIS127",
 			},
 			setupContext: func(c echo.Context) {
@@ -300,8 +289,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              unmanagedSite.ID.String(),
 				BmcMacAddress:       "00:11:22:33:44:99",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "CHASSIS128",
 			},
 			setupContext: func(c echo.Context) {
@@ -316,10 +305,10 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              site.ID.String(),
 				BmcMacAddress:       "00:11:22:33:44:AA",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "CHASSIS129",
-				SkuID:               cdb.GetStrPtr("invalid-sku-id-that-does-not-exist"),
+				SkuID:               cutil.GetPtr("invalid-sku-id-that-does-not-exist"),
 				Labels:              map[string]string{"env": "test"},
 			},
 			setupContext: func(c echo.Context) {
@@ -334,11 +323,11 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              site.ID.String(),
 				BmcMacAddress:       "00:11:22:33:44:BB",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "CHASSIS-RACK-001",
-				RackID:              cdb.GetStrPtr("test-rack-001"),
-				BmcIpAddress:        cdb.GetStrPtr("192.168.1.10"),
+				RackID:              cutil.GetPtr("test-rack-001"),
+				BmcIpAddress:        cutil.GetPtr("192.168.1.10"),
 				Labels:              map[string]string{"env": "rack-test"},
 			},
 			setupContext: func(c echo.Context) {
@@ -353,8 +342,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:                   site.ID.String(),
 				BmcMacAddress:            existingMAC, // Using the same MAC as existing machine
-				DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:       cdb.GetStrPtr("password"),
+				DefaultBmcUsername:       cutil.GetPtr("admin"),
+				DefaultBmcPassword:       cutil.GetPtr("password"),
 				ChassisSerialNumber:      "DUPLICATE-CHASSIS-999",
 				FallbackDPUSerialNumbers: []string{"DPU888"},
 				Labels:                   map[string]string{"env": "duplicate-test"},
@@ -459,9 +448,9 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		InfrastructureProviderID: infraProv.ID,
 		SiteID:                   site.ID,
 		ControllerMachineID:      machineID,
-		Vendor:                   cdb.GetStrPtr("test-vendor"),
-		ProductName:              cdb.GetStrPtr("test-product-name"),
-		SerialNumber:             cdb.GetStrPtr(uuid.NewString()),
+		Vendor:                   cutil.GetPtr("test-vendor"),
+		ProductName:              cutil.GetPtr("test-product-name"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		DefaultMacAddress:        &managedEMMAC,
 		Status:                   cdbm.MachineStatusReady,
 	}
@@ -494,23 +483,142 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 	assert.NotNil(t, unmanagedEM)
 
 	// Helper function to create mock user
-	createMockUser := func(org string) *cdbm.User {
+	createMockUser := func(org string, roles ...string) *cdbm.User {
+		if len(roles) == 0 {
+			roles = []string{authz.ProviderViewerRole}
+		}
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
 					Name:        org,
 					DisplayName: org,
 					OrgType:     "ENTERPRISE",
-					Roles:       []string{authz.ProviderViewerRole},
+					Roles:       roles,
 				},
 			},
 		}
 	}
 
+	// Privileged tenant org: tenant-only caller with TargetedInstanceCreation and TenantSite access
+	privilegedTenantOrg := "privileged-tenant-org"
+	privilegedTenantUserID := uuid.New()
+	privilegedTenant := &cdbm.Tenant{
+		ID:             uuid.New(),
+		Name:           "privileged-tenant",
+		Org:            privilegedTenantOrg,
+		OrgDisplayName: cutil.GetPtr("Privileged Tenant Org"),
+		Config: &cdbm.TenantConfig{
+			TargetedInstanceCreation: true,
+		},
+		CreatedBy: privilegedTenantUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(privilegedTenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	privilegedTenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  privilegedTenant.ID,
+		TenantOrg: privilegedTenantOrg,
+		SiteID:    site.ID,
+		CreatedBy: privilegedTenantUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(privilegedTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	privilegedTenantUser := createMockUser(privilegedTenantOrg, authz.TenantAdminRole)
+
+	// Dual-role org: same org acts as both Infrastructure Provider and privileged Tenant
+	dualRoleOrg := "dual-role-org"
+	dualRoleUserID := uuid.New()
+	dualRoleIP := &cdbm.InfrastructureProvider{
+		ID:   uuid.New(),
+		Name: "dual-role-provider",
+		Org:  dualRoleOrg,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleIP).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleTenant := &cdbm.Tenant{
+		ID:             uuid.New(),
+		Name:           "dual-role-tenant",
+		Org:            dualRoleOrg,
+		OrgDisplayName: cutil.GetPtr("Dual Role Org"),
+		Config: &cdbm.TenantConfig{
+			TargetedInstanceCreation: true,
+		},
+		CreatedBy: dualRoleUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleTenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleSite := &cdbm.Site{
+		ID:                       uuid.New(),
+		Name:                     "dual-role-site",
+		Org:                      dualRoleOrg,
+		InfrastructureProviderID: dualRoleIP.ID,
+		Status:                   cdbm.SiteStatusRegistered,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleSiteNoTenant := &cdbm.Site{
+		ID:                       uuid.New(),
+		Name:                     "dual-role-site-no-tenant",
+		Org:                      dualRoleOrg,
+		InfrastructureProviderID: dualRoleIP.ID,
+		Status:                   cdbm.SiteStatusRegistered,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleSiteNoTenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleTenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  dualRoleTenant.ID,
+		TenantOrg: dualRoleOrg,
+		SiteID:    dualRoleSite.ID,
+		CreatedBy: dualRoleUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	// External site owned by a different provider but accessible to dual-role tenant via TenantSite
+	dualRoleExternalTenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  dualRoleTenant.ID,
+		TenantOrg: dualRoleOrg,
+		SiteID:    unmanagedSite.ID,
+		CreatedBy: dualRoleUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleExternalTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleEM, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+		ExpectedMachineID:        uuid.New(),
+		SiteID:                   dualRoleSite.ID,
+		BmcMacAddress:            "00:11:22:33:44:CC",
+		ChassisSerialNumber:      "DUAL-ROLE-CHASSIS",
+		FallbackDpuSerialNumbers: []string{"DPU003"},
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, dualRoleEM)
+
+	dualRoleEMNoTenantSite, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+		ExpectedMachineID:        uuid.New(),
+		SiteID:                   dualRoleSiteNoTenant.ID,
+		BmcMacAddress:            "00:11:22:33:44:DD",
+		ChassisSerialNumber:      "DUAL-ROLE-NO-TENANT-CHASSIS",
+		FallbackDpuSerialNumbers: []string{"DPU004"},
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, dualRoleEMNoTenantSite)
+
+	dualRoleUser := createMockUser(dualRoleOrg, authz.ProviderAdminRole, authz.TenantAdminRole)
+
 	tests := []struct {
 		name                 string
+		orgName              string
 		siteId               string
 		includeRelations     []string
 		setupContext         func(c echo.Context)
@@ -658,13 +766,112 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 				// Should return forbidden error
 			},
 		},
+		{
+			name:    "privileged Tenant GetAll without siteId succeeds (no spurious 400)",
+			orgName: privilegedTenantOrg,
+			siteId:  "",
+			setupContext: func(c echo.Context) {
+				c.Set("user", privilegedTenantUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(privilegedTenantOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.Greater(t, len(response), 0, "Should return expected machines from TenantSite associations")
+				for _, em := range response {
+					assert.Equal(t, site.ID, em.SiteID, "All results should be from TenantSite-associated sites")
+					assert.NotEqual(t, unmanagedEM.ID, em.ID, "Should not return machines from sites without TenantSite access")
+				}
+			},
+		},
+		{
+			name:    "dual-role org GetAll without siteId succeeds (no spurious 400)",
+			orgName: dualRoleOrg,
+			siteId:  "",
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.GreaterOrEqual(t, len(response), 3, "Should return machines from provider and tenant site unions")
+				responseIDs := make(map[uuid.UUID]bool, len(response))
+				for _, em := range response {
+					responseIDs[em.ID] = true
+				}
+				assert.True(t, responseIDs[dualRoleEM.ID], "Should include machine from shared provider/tenant site")
+				assert.True(t, responseIDs[dualRoleEMNoTenantSite.ID], "Should include machine from provider-only site")
+				assert.True(t, responseIDs[unmanagedEM.ID], "Should include machine from external TenantSite-associated site")
+			},
+		},
+		{
+			name:    "dual-role org GetAll with siteId on external site (tenant perspective succeeds)",
+			orgName: dualRoleOrg,
+			siteId:  unmanagedSite.ID.String(),
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				for _, em := range response {
+					assert.Equal(t, unmanagedSite.ID, em.SiteID, "All results should be from the external TenantSite-associated site")
+				}
+			},
+		},
+		{
+			name:    "dual-role org GetAll with siteId on provider-only site succeeds",
+			orgName: dualRoleOrg,
+			siteId:  dualRoleSiteNoTenant.ID.String(),
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.Greater(t, len(response), 0, "Should return expected machines from provider-owned site")
+				for _, em := range response {
+					assert.Equal(t, dualRoleSiteNoTenant.ID, em.SiteID, "All results should be from the provider-only site")
+				}
+			},
+		},
+		{
+			name:    "dual-role org GetAll with siteId on inaccessible site returns forbidden",
+			orgName: dualRoleOrg,
+			siteId:  site.ID.String(),
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusForbidden,
+		},
 	}
 
 	_ = infraProv // Ensure infraProv is used to avoid compiler warning
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url := "/v2/org/" + org + "/nico/expected-machine"
+			testOrg := org
+			if tt.orgName != "" {
+				testOrg = tt.orgName
+			}
+			url := "/v2/org/" + testOrg + "/nico/expected-machine"
 			params := []string{}
 			if tt.siteId != "" {
 				params = append(params, "siteId="+tt.siteId)
@@ -747,9 +954,9 @@ func TestGetExpectedMachineHandler_Handle(t *testing.T) {
 		InfrastructureProviderID: infraProv.ID,
 		SiteID:                   site.ID,
 		ControllerMachineID:      testMachineID,
-		Vendor:                   cdb.GetStrPtr("test-vendor"),
-		ProductName:              cdb.GetStrPtr("test-product-name"),
-		SerialNumber:             cdb.GetStrPtr(uuid.NewString()),
+		Vendor:                   cutil.GetPtr("test-vendor"),
+		ProductName:              cutil.GetPtr("test-product-name"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		DefaultMacAddress:        &testEMMAC,
 		Status:                   cdbm.MachineStatusReady,
 	}
@@ -786,7 +993,7 @@ func TestGetExpectedMachineHandler_Handle(t *testing.T) {
 	// Helper function to create mock user
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -893,7 +1100,7 @@ func TestGetExpectedMachineHandler_Handle(t *testing.T) {
 
 		// Setup context
 		c.Set("user", &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -998,7 +1205,7 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 	// Helper function to create mock user
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -1023,7 +1230,7 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			name: "successful update",
 			id:   testEM.ID.String(),
 			requestBody: model.APIExpectedMachineUpdateRequest{
-				ChassisSerialNumber: cdb.GetStrPtr("UPDATED-CHASSIS-123"),
+				ChassisSerialNumber: cutil.GetPtr("UPDATED-CHASSIS-123"),
 				Labels:              map[string]string{"env": "updated"},
 			},
 			setupContext: func(c echo.Context) {
@@ -1037,7 +1244,7 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			name: "successful MAC address update",
 			id:   testEM.ID.String(),
 			requestBody: model.APIExpectedMachineUpdateRequest{
-				BmcMacAddress: cdb.GetStrPtr("AA:BB:CC:DD:EE:FF"),
+				BmcMacAddress: cutil.GetPtr("AA:BB:CC:DD:EE:FF"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -1056,8 +1263,8 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			name: "body ID mismatch with URL should return 400",
 			id:   testEM.ID.String(),
 			requestBody: model.APIExpectedMachineUpdateRequest{
-				ID:                  cdb.GetStrPtr(uuid.New().String()), // different from URL
-				ChassisSerialNumber: cdb.GetStrPtr("SHOULD-NOT-UPDATE"),
+				ID:                  cutil.GetPtr(uuid.New().String()), // different from URL
+				ChassisSerialNumber: cutil.GetPtr("SHOULD-NOT-UPDATE"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -1070,7 +1277,7 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			name: "cannot update on unmanaged site",
 			id:   unmanagedEM.ID.String(),
 			requestBody: model.APIExpectedMachineUpdateRequest{
-				ChassisSerialNumber: cdb.GetStrPtr("SHOULD-NOT-UPDATE"),
+				ChassisSerialNumber: cutil.GetPtr("SHOULD-NOT-UPDATE"),
 				Labels:              map[string]string{"env": "fail"},
 			},
 			setupContext: func(c echo.Context) {
@@ -1084,7 +1291,7 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			name: "invalid SKU ID returns 422",
 			id:   testEM.ID.String(),
 			requestBody: model.APIExpectedMachineUpdateRequest{
-				SkuID: cdb.GetStrPtr("invalid-sku-id-for-update"),
+				SkuID: cutil.GetPtr("invalid-sku-id-for-update"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -1092,6 +1299,19 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 				c.SetParamValues(org, testEM.ID.String())
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "invalid BMC MAC address returns 400",
+			id:   testEM.ID.String(),
+			requestBody: model.APIExpectedMachineUpdateRequest{
+				BmcMacAddress: cutil.GetPtr("INVALID-MAC"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testEM.ID.String())
+			},
+			expectedStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1200,7 +1420,7 @@ func TestDeleteExpectedMachineHandler_Handle(t *testing.T) {
 	// Helper function to create mock user
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -1302,7 +1522,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		ID:             uuid.New(),
 		Name:           "test-tenant",
 		Org:            tenantOrg,
-		OrgDisplayName: cdb.GetStrPtr("Test Tenant"),
+		OrgDisplayName: cutil.GetPtr("Test Tenant"),
 		Config: &cdbm.TenantConfig{
 			TargetedInstanceCreation: true,
 		},
@@ -1313,7 +1533,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	// Create tenant user with TenantAdmin role
 	tenantUser := &cdbm.User{
 		ID:    uuid.New(),
-		Email: cdb.GetStrPtr("tenant@example.com"),
+		Email: cutil.GetPtr("tenant@example.com"),
 		OrgData: cdbm.OrgData{
 			tenantOrg: cdbm.Org{
 				ID:          123,
@@ -1340,13 +1560,23 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)
 
+	tenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  tenant.ID,
+		TenantOrg: tenantOrg,
+		SiteID:    site.ID,
+		CreatedBy: tenantUser.ID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
 	// Setup tenant without capability
 	tenantOrg2 := "test-tenant-org-no-cap"
 	tenant2 := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Name:           "test-tenant-no-cap",
 		Org:            tenantOrg2,
-		OrgDisplayName: cdb.GetStrPtr("Test Tenant No Cap"),
+		OrgDisplayName: cutil.GetPtr("Test Tenant No Cap"),
 		Config: &cdbm.TenantConfig{
 			TargetedInstanceCreation: false, // No capability
 		},
@@ -1356,7 +1586,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 
 	tenantUser2 := &cdbm.User{
 		ID:    uuid.New(),
-		Email: cdb.GetStrPtr("tenant-no-cap@example.com"),
+		Email: cutil.GetPtr("tenant-no-cap@example.com"),
 		OrgData: cdbm.OrgData{
 			tenantOrg2: cdbm.Org{
 				ID:          124,
@@ -1436,8 +1666,8 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:                   site.ID.String(),
 				BmcMacAddress:            "AA:BB:CC:DD:EE:01",
-				DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:       cdb.GetStrPtr("password"),
+				DefaultBmcUsername:       cutil.GetPtr("admin"),
+				DefaultBmcPassword:       cutil.GetPtr("password"),
 				ChassisSerialNumber:      "TENANT-CHASSIS-001",
 				FallbackDPUSerialNumbers: []string{"DPU-TENANT-001"},
 				Labels:                   map[string]string{"tenant": "test"},
@@ -1481,7 +1711,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 			},
 		},
 		{
-			name:        "GetAll Expected Machines as Tenant without siteId should fail",
+			name:        "GetAll Expected Machines as Tenant without siteId succeeds",
 			method:      http.MethodGet,
 			path:        "/v2/org/" + tenantOrg + "/nico/expected-machine",
 			requestBody: nil,
@@ -1493,8 +1723,13 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 				c.SetParamNames("orgName")
 				c.SetParamValues(tenantOrg)
 			},
-			expectedStatus: http.StatusBadRequest,
-			validateResp:   nil,
+			expectedStatus: http.StatusOK,
+			validateResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(rec.Body.Bytes(), &response)
+				assert.Nil(t, err)
+				assert.Greater(t, len(response), 0, "Should return expected machines from TenantSite-associated sites")
+			},
 		},
 		{
 			name:   "Tenant without TargetedInstanceCreation capability should fail",
@@ -1503,8 +1738,8 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              site.ID.String(),
 				BmcMacAddress:       "AA:BB:CC:DD:EE:05",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "NO-CAP-CHASSIS",
 			},
 			setupHandler: func() interface{} {
@@ -1525,8 +1760,8 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 			requestBody: model.APIExpectedMachineCreateRequest{
 				SiteID:              site2.ID.String(), // Site with different provider
 				BmcMacAddress:       "AA:BB:CC:DD:EE:06",
-				DefaultBmcUsername:  cdb.GetStrPtr("admin"),
-				DefaultBmcPassword:  cdb.GetStrPtr("password"),
+				DefaultBmcUsername:  cutil.GetPtr("admin"),
+				DefaultBmcPassword:  cutil.GetPtr("password"),
 				ChassisSerialNumber: "NO-ACCOUNT-CHASSIS",
 			},
 			setupHandler: func() interface{} {
@@ -1671,7 +1906,7 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 	// Helper function to create mock user
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -1699,8 +1934,8 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 				{
 					SiteID:                   site.ID.String(),
 					BmcMacAddress:            "00:11:22:33:44:01",
-					DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-					DefaultBmcPassword:       cdb.GetStrPtr("password"),
+					DefaultBmcUsername:       cutil.GetPtr("admin"),
+					DefaultBmcPassword:       cutil.GetPtr("password"),
 					ChassisSerialNumber:      "BATCH-CHASSIS-001",
 					FallbackDPUSerialNumbers: []string{"DPU001"},
 					Labels:                   map[string]string{"env": "test"},
@@ -1708,8 +1943,8 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 				{
 					SiteID:                   site.ID.String(),
 					BmcMacAddress:            "00:11:22:33:44:02",
-					DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-					DefaultBmcPassword:       cdb.GetStrPtr("password"),
+					DefaultBmcUsername:       cutil.GetPtr("admin"),
+					DefaultBmcPassword:       cutil.GetPtr("password"),
 					ChassisSerialNumber:      "BATCH-CHASSIS-002",
 					FallbackDPUSerialNumbers: []string{"DPU002"},
 					Labels:                   map[string]string{"env": "test"},
@@ -1734,21 +1969,21 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 				{
 					SiteID:                   site.ID.String(),
 					BmcMacAddress:            "00:11:22:33:44:03",
-					DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-					DefaultBmcPassword:       cdb.GetStrPtr("password"),
+					DefaultBmcUsername:       cutil.GetPtr("admin"),
+					DefaultBmcPassword:       cutil.GetPtr("password"),
 					ChassisSerialNumber:      "BATCH-CHASSIS-003",
 					FallbackDPUSerialNumbers: []string{"DPU003"},
-					SkuID:                    cdb.GetStrPtr("test-sku-uuid-1"),
+					SkuID:                    cutil.GetPtr("test-sku-uuid-1"),
 					Labels:                   map[string]string{"env": "test"},
 				},
 				{
 					SiteID:                   site.ID.String(),
 					BmcMacAddress:            "00:11:22:33:44:04",
-					DefaultBmcUsername:       cdb.GetStrPtr("admin"),
-					DefaultBmcPassword:       cdb.GetStrPtr("password"),
+					DefaultBmcUsername:       cutil.GetPtr("admin"),
+					DefaultBmcPassword:       cutil.GetPtr("password"),
 					ChassisSerialNumber:      "BATCH-CHASSIS-004",
 					FallbackDPUSerialNumbers: []string{"DPU004"},
-					SkuID:                    cdb.GetStrPtr("test-sku-uuid-2"),
+					SkuID:                    cutil.GetPtr("test-sku-uuid-2"),
 					Labels:                   map[string]string{"env": "test"},
 				},
 			},
@@ -1803,7 +2038,7 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 					SiteID:              site.ID.String(),
 					BmcMacAddress:       "00:11:22:33:44:06",
 					ChassisSerialNumber: "BATCH-CHASSIS-007",
-					SkuID:               cdb.GetStrPtr("invalid-sku-id"),
+					SkuID:               cutil.GetPtr("invalid-sku-id"),
 				},
 			},
 			setupContext: func(c echo.Context) {
@@ -1899,14 +2134,14 @@ func TestCreateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	reqBody, err := json.Marshal(rawBody)
 	assert.Nil(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v2/org/"+org+"/carbide/expected-machine", bytes.NewReader(reqBody))
+	req := httptest.NewRequest(http.MethodPost, "/v2/org/"+org+"/nico/expected-machine", bytes.NewReader(reqBody))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	req = req.WithContext(context.Background())
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.Set("user", &cdbm.User{
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:          123,
@@ -1992,7 +2227,7 @@ func TestUpdateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	reqBody, err := json.Marshal(rawBody)
 	assert.Nil(t, err)
 
-	url := "/v2/org/" + org + "/carbide/expected-machine/" + testEM.ID.String()
+	url := "/v2/org/" + org + "/nico/expected-machine/" + testEM.ID.String()
 	req := httptest.NewRequest(http.MethodPatch, url, bytes.NewReader(reqBody))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	req = req.WithContext(context.Background())
@@ -2000,7 +2235,7 @@ func TestUpdateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.Set("user", &cdbm.User{
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:          123,
@@ -2155,7 +2390,7 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 	// Helper function to create mock user
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -2181,13 +2416,13 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "successful batch update",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:                  cdb.GetStrPtr(testEM1.ID.String()),
-					ChassisSerialNumber: cdb.GetStrPtr("UPDATED-BATCH-001"),
+					ID:                  cutil.GetPtr(testEM1.ID.String()),
+					ChassisSerialNumber: cutil.GetPtr("UPDATED-BATCH-001"),
 					Labels:              map[string]string{"env": "updated"},
 				},
 				{
-					ID:                  cdb.GetStrPtr(testEM2.ID.String()),
-					ChassisSerialNumber: cdb.GetStrPtr("UPDATED-BATCH-002"),
+					ID:                  cutil.GetPtr(testEM2.ID.String()),
+					ChassisSerialNumber: cutil.GetPtr("UPDATED-BATCH-002"),
 					Labels:              map[string]string{"env": "updated"},
 				},
 			},
@@ -2218,7 +2453,7 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "missing ID in batch item should fail",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ChassisSerialNumber: cdb.GetStrPtr("MISSING-ID"),
+					ChassisSerialNumber: cutil.GetPtr("MISSING-ID"),
 				},
 			},
 			setupContext: func(c echo.Context) {
@@ -2232,8 +2467,8 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "non-existent machine should fail",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:                  cdb.GetStrPtr("12345678-1234-1234-1234-123456789099"),
-					ChassisSerialNumber: cdb.GetStrPtr("SHOULD-FAIL"),
+					ID:                  cutil.GetPtr("12345678-1234-1234-1234-123456789099"),
+					ChassisSerialNumber: cutil.GetPtr("SHOULD-FAIL"),
 				},
 			},
 			setupContext: func(c echo.Context) {
@@ -2247,8 +2482,8 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "invalid SKU ID should fail",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:    cdb.GetStrPtr(testEM1.ID.String()),
-					SkuID: cdb.GetStrPtr("invalid-sku-id"),
+					ID:    cutil.GetPtr(testEM1.ID.String()),
+					SkuID: cutil.GetPtr("invalid-sku-id"),
 				},
 			},
 			setupContext: func(c echo.Context) {
@@ -2262,12 +2497,12 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "duplicate IDs in request should fail",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:                  cdb.GetStrPtr(testEM1.ID.String()),
-					ChassisSerialNumber: cdb.GetStrPtr("UPDATED-DUP-1"),
+					ID:                  cutil.GetPtr(testEM1.ID.String()),
+					ChassisSerialNumber: cutil.GetPtr("UPDATED-DUP-1"),
 				},
 				{
-					ID:                  cdb.GetStrPtr(testEM1.ID.String()), // duplicate
-					ChassisSerialNumber: cdb.GetStrPtr("UPDATED-DUP-2"),
+					ID:                  cutil.GetPtr(testEM1.ID.String()), // duplicate
+					ChassisSerialNumber: cutil.GetPtr("UPDATED-DUP-2"),
 				},
 			},
 			setupContext: func(c echo.Context) {
@@ -2283,8 +2518,8 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 				items := make([]model.APIExpectedMachineUpdateRequest, 101)
 				for i := 0; i < 101; i++ {
 					items[i] = model.APIExpectedMachineUpdateRequest{
-						ID:                  cdb.GetStrPtr(uuid.New().String()),
-						ChassisSerialNumber: cdb.GetStrPtr(fmt.Sprintf("SERIAL-%03d", i)),
+						ID:                  cutil.GetPtr(uuid.New().String()),
+						ChassisSerialNumber: cutil.GetPtr(fmt.Sprintf("SERIAL-%03d", i)),
 					}
 				}
 				return items
@@ -2300,12 +2535,12 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "machines from different sites should fail",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:                  cdb.GetStrPtr(testEM1.ID.String()),
-					ChassisSerialNumber: cdb.GetStrPtr("UPDATED-SITE1"),
+					ID:                  cutil.GetPtr(testEM1.ID.String()),
+					ChassisSerialNumber: cutil.GetPtr("UPDATED-SITE1"),
 				},
 				{
-					ID:                  cdb.GetStrPtr(testEM3.ID.String()), // This is on site2
-					ChassisSerialNumber: cdb.GetStrPtr("UPDATED-SITE2"),
+					ID:                  cutil.GetPtr(testEM3.ID.String()), // This is on site2
+					ChassisSerialNumber: cutil.GetPtr("UPDATED-SITE2"),
 				},
 			},
 			setupContext: func(c echo.Context) {
@@ -2324,19 +2559,19 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 			name: "bad siteID with duplicate MAC and duplicate serial should fail with validation errors",
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:                  cdb.GetStrPtr(testEM1.ID.String()),
-					BmcMacAddress:       cdb.GetStrPtr("ff:ff:ff:ff:ff:ff"),    // lowercase
-					ChassisSerialNumber: cdb.GetStrPtr("Duplicate-Everything"), // mixed case
+					ID:                  cutil.GetPtr(testEM1.ID.String()),
+					BmcMacAddress:       cutil.GetPtr("ff:ff:ff:ff:ff:ff"),    // lowercase
+					ChassisSerialNumber: cutil.GetPtr("Duplicate-Everything"), // mixed case
 				},
 				{
-					ID:                  cdb.GetStrPtr(testEM2.ID.String()),
-					BmcMacAddress:       cdb.GetStrPtr("FF:FF:FF:FF:FF:FF"),    // uppercase (duplicate MAC, different case)
-					ChassisSerialNumber: cdb.GetStrPtr("DUPLICATE-EVERYTHING"), // uppercase (duplicate serial, different case)
+					ID:                  cutil.GetPtr(testEM2.ID.String()),
+					BmcMacAddress:       cutil.GetPtr("FF:FF:FF:FF:FF:FF"),    // uppercase (duplicate MAC, different case)
+					ChassisSerialNumber: cutil.GetPtr("DUPLICATE-EVERYTHING"), // uppercase (duplicate serial, different case)
 				},
 				{
-					ID:                  cdb.GetStrPtr("00000000-0000-0000-0000-000000000099"), // non-existent ID (bad siteID)
-					BmcMacAddress:       cdb.GetStrPtr("AA:AA:AA:AA:AA:AA"),
-					ChassisSerialNumber: cdb.GetStrPtr("NONEXISTENT-SERIAL"),
+					ID:                  cutil.GetPtr("00000000-0000-0000-0000-000000000099"), // non-existent ID (bad siteID)
+					BmcMacAddress:       cutil.GetPtr("AA:AA:AA:AA:AA:AA"),
+					ChassisSerialNumber: cutil.GetPtr("NONEXISTENT-SERIAL"),
 				},
 			},
 			setupContext: func(c echo.Context) {

@@ -19,6 +19,7 @@ mod implementation;
 
 pub mod auth;
 pub mod conv;
+pub mod dpu_bios;
 pub mod error;
 #[cfg(feature = "test-support")]
 pub mod test_support;
@@ -29,10 +30,10 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
+use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::BmcAccessInfo;
 pub use error::RedfishClientCreationError;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use libredfish::Redfish;
 use libredfish::model::service_root::RedfishVendor;
 

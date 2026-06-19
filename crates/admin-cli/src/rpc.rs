@@ -43,7 +43,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
-use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
@@ -56,6 +56,23 @@ use crate::machine::MachineAutoupdate;
 /// methods.
 #[derive(Clone)]
 pub struct ApiClient(pub ForgeApiClient);
+
+/// Returns `True` when `status` *can* mean the server does not implement
+/// the requested RPC, telling the caller to retry through the deprecated alias.
+///
+/// API servers that predate a renamed RPC answer it in one of two ways:
+///
+/// - `Unimplemented`, when the request reaches the gRPC router.
+/// - A bare HTTP 403 with no `grpc-status` trailer, when `carbide-api` RBAC
+///   rules reject a method name missing from its permission table (which
+///   happens before the gRPC router is even consulted). tonic maps that 403 to
+///   `PermissionDenied` on the client.
+fn maybe_unimplemented(status: &tonic::Status) -> bool {
+    matches!(
+        status.code(),
+        tonic::Code::Unimplemented | tonic::Code::PermissionDenied
+    )
+}
 
 // Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
 // access to the underlying ForgeApiClient, if they want to simply call the gRPC methods themselves.
@@ -435,6 +452,27 @@ impl ApiClient {
             .unwrap_or_default())
     }
 
+    /// Fetches controller state history for a single VPC prefix.
+    pub async fn get_vpc_prefix_state_history(
+        &self,
+        vpc_prefix_id: VpcPrefixId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        // Request the history through the generic state-history RPC.
+        let mut result = self
+            .0
+            .find_vpc_prefix_state_histories(rpc::VpcPrefixStateHistoriesRequest {
+                vpc_prefix_ids: vec![vpc_prefix_id],
+            })
+            .await?;
+
+        // Return an empty list when the object has no recorded transitions yet.
+        Ok(result
+            .histories
+            .remove(&vpc_prefix_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
     pub async fn get_domains(
         &self,
         id: Option<::carbide_uuid::domain::DomainId>,
@@ -462,7 +500,7 @@ impl ApiClient {
         };
         match self.0.insert_machine_health_report(request.clone()).await {
             Ok(()) => Ok(()),
-            Err(status) if status.code() == tonic::Code::Unimplemented => {
+            Err(status) if maybe_unimplemented(&status) => {
                 // Fall back to the deprecated alias for older API servers
                 // that don't have the renamed RPC yet.
                 #[allow(deprecated)]
@@ -478,7 +516,7 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::ListHealthReportResponse> {
         match self.0.list_machine_health_reports(machine_id).await {
             Ok(response) => Ok(response),
-            Err(status) if status.code() == tonic::Code::Unimplemented => {
+            Err(status) if maybe_unimplemented(&status) => {
                 // Fall back to the deprecated alias for older API servers.
                 #[allow(deprecated)]
                 Ok(self.0.list_health_report_overrides(machine_id).await?)
@@ -498,7 +536,7 @@ impl ApiClient {
         };
         match self.0.remove_machine_health_report(request.clone()).await {
             Ok(()) => Ok(()),
-            Err(status) if status.code() == tonic::Code::Unimplemented => {
+            Err(status) if maybe_unimplemented(&status) => {
                 // Fall back to the deprecated alias for older API servers.
                 #[allow(deprecated)]
                 Ok(self.0.remove_health_report_override(request).await?)
@@ -537,7 +575,7 @@ impl ApiClient {
         let endpoint_ids = match self.0.find_explored_endpoint_ids().await {
             Ok(endpoint_ids) => endpoint_ids,
             Err(status) => {
-                return if status.code() == tonic::Code::Unimplemented {
+                return if maybe_unimplemented(&status) {
                     Ok(self.0.get_site_exploration_report().await?)
                 } else {
                     Err(status.into())
@@ -577,7 +615,7 @@ impl ApiClient {
     ) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredManagedHost>> {
         let host_ids = match self.0.find_explored_managed_host_ids().await {
             Ok(host_ids) => host_ids,
-            Err(status) if status.code() == tonic::Code::Unimplemented => {
+            Err(status) if maybe_unimplemented(&status) => {
                 let hosts = self.0.get_site_exploration_report().await?.managed_hosts;
                 return Ok(hosts);
             }
@@ -717,7 +755,7 @@ impl ApiClient {
             rack_id: rack_id.or(expected_machine.rack_id),
             default_pause_ingestion_and_poweron,
             #[allow(deprecated)]
-            dpf_enabled: dpf_enabled.unwrap_or_default(),
+            dpf_enabled: dpf_enabled.unwrap_or(true),
             is_dpf_enabled: dpf_enabled,
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
@@ -755,7 +793,7 @@ impl ApiClient {
                     default_pause_ingestion_and_poweron: machine
                         .default_pause_ingestion_and_poweron,
                     #[allow(deprecated)]
-                    dpf_enabled: machine.dpf_enabled.unwrap_or_default(),
+                    dpf_enabled: machine.dpf_enabled.unwrap_or(true),
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
@@ -1261,7 +1299,9 @@ impl ApiClient {
                     .pci_properties
                     .as_ref()
                     .map(|pci| &pci.vendor)
-                    .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
+                    .is_some_and(|v| {
+                        v.to_ascii_lowercase().contains("mellanox") || allocate_instance.zero_dpu
+                    })
             });
             let mut interface_config = Vec::default();
             let mut vf_chunk_iter = vf_network_segment_ids.chunks(vfs_per_pf);
@@ -1463,8 +1503,12 @@ impl ApiClient {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
-                interfaces: interface_configs,
-                auto: false,
+                interfaces: if allocate_instance.zero_dpu {
+                    vec![]
+                } else {
+                    interface_configs
+                },
+                auto: allocate_instance.zero_dpu,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
@@ -1648,7 +1692,7 @@ impl ApiClient {
         machine_id: MachineId,
         tags: Option<Vec<String>>,
         allowed_tests: Option<Vec<String>>,
-        run_unverfied_tests: bool,
+        run_unverified_tests: bool,
         contexts: Option<Vec<String>>,
     ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
         let allowed_tests: Vec<String> = allowed_tests
@@ -1661,7 +1705,7 @@ impl ApiClient {
             tags: tags.unwrap_or_default(),
             allowed_tests,
             action: rpc::machine_validation_on_demand_request::Action::Start.into(),
-            run_unverfied_tests,
+            run_unverfied_tests: run_unverified_tests,
             contexts: contexts.unwrap_or_default(),
         };
         Ok(self.0.on_demand_machine_validation(request).await?)
@@ -2295,5 +2339,38 @@ impl ApiClient {
     pub async fn get_dpf_service_versions(&self) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
         let response = self.0.get_dpf_service_versions().await?;
         Ok(response.services)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::maybe_unimplemented;
+
+    /// `PermissionDenied` must trigger the deprecated-alias fallback: servers
+    /// that predate a renamed RPC reject its unknown method name with a bare
+    /// HTTP 403 based on our internal RBAC rules, which tonic surfaces as
+    /// `PermissionDenied` rather than `Unimplemented`.
+    #[test]
+    fn maybe_unimplemented_accepts_both_unknown_rpc_signals() {
+        assert!(maybe_unimplemented(&tonic::Status::unimplemented("")));
+        assert!(maybe_unimplemented(&tonic::Status::permission_denied("")));
+    }
+
+    #[test]
+    fn maybe_unimplemented_rejects_other_errors() {
+        for status in [
+            tonic::Status::not_found(""),
+            tonic::Status::unavailable(""),
+            tonic::Status::internal(""),
+            tonic::Status::invalid_argument(""),
+            tonic::Status::unauthenticated(""),
+            tonic::Status::failed_precondition(""),
+        ] {
+            assert!(
+                !maybe_unimplemented(&status),
+                "{:?} must not trigger the deprecated-alias fallback",
+                status.code()
+            );
+        }
     }
 }

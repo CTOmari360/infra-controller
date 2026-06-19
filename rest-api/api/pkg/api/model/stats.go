@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -21,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // ~~~~~ Machine GPU Stats ~~~~~ //
@@ -97,11 +83,11 @@ type APITenantInstanceTypeStatsEntry struct {
 	// MaxAllocatable is the number of Ready Machines of this Instance Type available for additional allocation to Tenants
 	MaxAllocatable int `json:"maxAllocatable"`
 	// Allocations is the list of individual allocations for this instance type within the tenant
-	Allocations []APITenantInstanceTypeAllocation `json:"allocations"`
+	Allocations []APITenantInstanceTypeAllocationStats `json:"allocations"`
 }
 
 // APITenantInstanceTypeAllocation represents a single allocation's stats for an instance type
-type APITenantInstanceTypeAllocation struct {
+type APITenantInstanceTypeAllocationStats struct {
 	// ID is the unique identifier for the Allocation
 	ID string `json:"id"`
 	// Name is the name of the Allocation
@@ -175,11 +161,11 @@ type APIMachineInstanceTypeStats struct {
 	// that are currently associated with Tenant Instances
 	UsedMachineStats APIMachineStatusBreakdown `json:"usedMachineStats"`
 	// Tenants is the per-tenant breakdown for this instance type
-	Tenants []APIMachineInstanceTypeTenant `json:"tenants"`
+	Tenants []APIMachineInstanceTypeTenantStats `json:"tenants"`
 }
 
 // APIMachineInstanceTypeTenant represents per-tenant allocation stats within an instance type
-type APIMachineInstanceTypeTenant struct {
+type APIMachineInstanceTypeTenantStats struct {
 	// ID is the unique identifier for the Tenant
 	ID string `json:"id"`
 	// Name is the name of the Tenant
@@ -189,11 +175,11 @@ type APIMachineInstanceTypeTenant struct {
 	// UsedMachineStats captures the usage status of machines for this tenant and instance type
 	UsedMachineStats APIMachineStatusBreakdown `json:"usedMachineStats"`
 	// Allocations is the list of individual allocations for this tenant and instance type
-	Allocations []APIMachineInstanceTypeTenantAllocation `json:"allocations"`
+	Allocations []APIMachineInstanceTypeTenantAllocationStats `json:"allocations"`
 }
 
 // APIMachineInstanceTypeTenantAllocation represents a single allocation within a tenant's instance type stats
-type APIMachineInstanceTypeTenantAllocation struct {
+type APIMachineInstanceTypeTenantAllocationStats struct {
 	// ID is the unique identifier for the Allocation
 	ID string `json:"id"`
 	// Name is the name of the Allocation
@@ -227,19 +213,19 @@ func NewAPIMachineInstanceTypeStats(
 	// ready machines minus those already reserved (allocated but not yet in use)
 	maxAlloc := max(0, assignedStats.Ready-(allocated-used.Total))
 
-	tenantMap := make(map[uuid.UUID]*APIMachineInstanceTypeTenant)
+	tenantMap := make(map[uuid.UUID]*APIMachineInstanceTypeTenantStats)
 	for _, ac := range itConstraints {
 		tID := ac.Allocation.TenantID
 		tenantEntry, exists := tenantMap[tID]
 		if !exists {
-			tenantEntry = &APIMachineInstanceTypeTenant{
+			tenantEntry = &APIMachineInstanceTypeTenantStats{
 				ID:   tID.String(),
 				Name: ac.Allocation.Tenant.Org,
 			}
 			tenantMap[tID] = tenantEntry
 		}
 		tenantEntry.Allocated += ac.ConstraintValue
-		tenantEntry.Allocations = append(tenantEntry.Allocations, APIMachineInstanceTypeTenantAllocation{
+		tenantEntry.Allocations = append(tenantEntry.Allocations, APIMachineInstanceTypeTenantAllocationStats{
 			ID:        ac.Allocation.ID.String(),
 			Name:      ac.Allocation.Name,
 			Allocated: ac.ConstraintValue,
@@ -252,7 +238,7 @@ func NewAPIMachineInstanceTypeStats(
 		}
 	}
 
-	tenants := lo.MapToSlice(tenantMap, func(_ uuid.UUID, t *APIMachineInstanceTypeTenant) APIMachineInstanceTypeTenant {
+	tenants := lo.MapToSlice(tenantMap, func(_ uuid.UUID, t *APIMachineInstanceTypeTenantStats) APIMachineInstanceTypeTenantStats {
 		return *t
 	})
 

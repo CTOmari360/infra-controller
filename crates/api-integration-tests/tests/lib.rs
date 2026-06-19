@@ -218,14 +218,14 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         .into_iter()
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
-    let mut docs = "# NCX Infra Controller (NICo) core metrics\n\n".to_string();
+    let mut docs = "# NVIDIA Infra Controller (NICo) Core Metrics\n\n".to_string();
     use std::fmt::Write;
 
     use askama_escape::Escaper;
 
     writeln!(
         &mut docs,
-        "This file contains a list of metrics exported by NCX Infra Controller (NICo). \
+        "This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
         Metrics for workflows which are not exercised by the test are missing."
     )
@@ -249,7 +249,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         write!(&mut docs, "</td>").unwrap();
         writeln!(&mut docs, "</tr>").unwrap();
     }
-    writeln!(&mut docs, "<table>").unwrap();
+    writeln!(&mut docs, "</table>").unwrap();
 
     let path = std::path::Path::new(METRIC_DOC_PATH);
     assert!(
@@ -263,7 +263,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../docs/manuals/metrics/core_metrics.md"
+    "/../../docs/observability/core_metrics.md"
 );
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
@@ -901,9 +901,6 @@ where
         )]),
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
-        use_pxe_api: true,
-        pxe_server_host: None,
-        pxe_server_port: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,

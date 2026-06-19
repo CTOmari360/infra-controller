@@ -17,11 +17,11 @@
 
 use std::net::TcpListener;
 
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialPrefix, CredentialWriter, Credentials,
     MqttCredentialType,
 };
-use forge_secrets::{ForgeVaultClient, VaultConfig, create_vault_client};
+use carbide_secrets::{ForgeVaultClient, VaultConfig, create_vault_client};
 use mac_address::MacAddress;
 use serial_test::serial;
 
@@ -65,6 +65,7 @@ async fn setup_vault_with_secrets() -> Option<(
         pki_role_name: Some("forge-cluster".to_string()),
         token: Some(vault.token.clone()),
         vault_cacert: Some(vault.ca_cert.clone()),
+        ..Default::default()
     };
 
     let meter = opentelemetry::global::meter("vault-catalogue-test");

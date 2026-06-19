@@ -1,25 +1,12 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package config
 
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	cauth "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -43,6 +30,8 @@ var (
 	// ProjectRoot describes the folder path of this project
 	ProjectRoot = filepath.Join(filepath.Dir(cur), "../..")
 )
+
+const defaultSitePhoneHomeUrl = "http://169.254.169.254:7777/latest/meta-data/phone_home"
 
 const (
 	// ConfigFilePath specifies the path to the config file, this contains the default path
@@ -222,7 +211,7 @@ func NewConfig() *Config {
 	}
 
 	c := Config{
-		v: viper.New(),
+		v: newViper(),
 	}
 
 	// Set defaults
@@ -256,7 +245,7 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigTracingEnabled, false)
 
 	// SiteConfig default phone home url
-	c.v.SetDefault(ConfigSitePhoneHomeUrl, "http://localhost")
+	c.v.SetDefault(ConfigSitePhoneHomeUrl, defaultSitePhoneHomeUrl)
 
 	// Keycloak needs to be explicitly enabled via config
 	c.v.SetDefault(ConfigKeycloakEnabled, false)
@@ -280,6 +269,7 @@ func NewConfig() *Config {
 	} else if err != nil { // Handle other errors that occurred while reading the config file
 		log.Panic().Err(err).Msgf("fatal error while reading the config file: %s", err)
 	}
+	c.SetSitePhoneHomeUrl(c.v.GetString(ConfigSitePhoneHomeUrl))
 
 	// Set values
 	c.setLogLevel()
@@ -312,6 +302,7 @@ func NewConfig() *Config {
 
 	// Watch secret files
 	c.WatchSecretFilePaths()
+	c.WatchConfigFile()
 
 	config = &c
 
@@ -635,6 +626,9 @@ func (c *Config) ValidateIssuersConfig(issuers []IssuerConfig) error {
 				if mapping.OrgAttribute != "" {
 					return fmt.Errorf("issuer %s: claimMapping %d: orgAttribute cannot be specified when isServiceAccount is true", issuer.Name, j)
 				}
+				if !c.GetEnvDisconnected() {
+					return fmt.Errorf("issuer %s: claimMapping %d: isServiceAccount is only supported in disconnected mode", issuer.Name, j)
+				}
 			}
 
 			// Dynamic org mapping
@@ -866,11 +860,17 @@ func (c *Config) GetSiteManagerEndpoint() string {
 
 // SetSitePhoneHomeUrl sets the url for PhoneHome
 func (c *Config) SetSitePhoneHomeUrl(value string) {
+	// Lock the mutex to prevent race conditions
+	c.Lock()
+	defer c.Unlock()
 	c.v.Set(ConfigSitePhoneHomeUrl, value)
 }
 
 // GetSitePhoneHomeUrl gets the url for PhoneHome
 func (c *Config) GetSitePhoneHomeUrl() string {
+	// Lock the mutex to prevent race conditions
+	c.RLock()
+	defer c.RUnlock()
 	return c.v.GetString(ConfigSitePhoneHomeUrl)
 }
 
@@ -1114,6 +1114,35 @@ func (c *Config) WatchSecretFilePaths() {
 	initWG.Wait() // make sure that the go routine above fully ended before returning
 }
 
+// WatchConfigFile starts watching the config file for reloadable setting changes.
+func (c *Config) WatchConfigFile() {
+	configPath := c.GetPathToConfig()
+	if absPath, err := filepath.Abs(configPath); err == nil {
+		configPath = absPath
+	}
+
+	watchv := newViper()
+	watchv.SetConfigFile(configPath)
+	watchv.OnConfigChange(func(e fsnotify.Event) {
+		if !e.Has(fsnotify.Write) {
+			return
+		}
+
+		log.Info().Str("config.file", configPath).Str("event.file", e.Name).Msg("config file changed")
+
+		// Dynamically reload config changes here
+		// NOTE: Each attribute we decide to reload must support read/write locking in get/set methods
+		// 1. Site PhoneHome URL
+		newSitePhoneHomeUrl := watchv.GetString(ConfigSitePhoneHomeUrl)
+		currentSitePhoneHomeUrl := c.GetSitePhoneHomeUrl()
+		if newSitePhoneHomeUrl != "" && newSitePhoneHomeUrl != currentSitePhoneHomeUrl {
+			c.SetSitePhoneHomeUrl(newSitePhoneHomeUrl)
+			log.Info().Str("config.file", configPath).Str("event.file", e.Name).Msg("Successfully loaded new Site phone home URL")
+		}
+	})
+	watchv.WatchConfig()
+}
+
 // Close stops background tasks
 func (c *Config) Close() {
 	if c.temporal != nil {
@@ -1161,4 +1190,10 @@ func (c *Config) GetRateLimiterExpiresIn() int {
 // SetRateLimiterExpiresIn sets the expiration time in seconds
 func (c *Config) SetRateLimiterExpiresIn(value int) {
 	c.v.Set(ConfigRateLimiterExpiresIn, value)
+}
+
+func newViper() *viper.Viper {
+	return viper.NewWithOptions(viper.WithLogger(slog.New(zerologSlogHandler{
+		logger: log.Logger.With().Str("component", "viper").Logger(),
+	})))
 }

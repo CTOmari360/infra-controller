@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -21,8 +7,8 @@ import (
 	"context"
 	"testing"
 
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -30,10 +16,10 @@ import (
 )
 
 func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	wid := "test-workflow-id"
 	wrun := &tmocks.WorkflowRun{}
@@ -41,7 +27,7 @@ func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
 
 	type fields struct {
 		siteID               uuid.UUID
-		nicoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 		temporalPublishQueue string
 		sitePageSize         int
 		cloudPageSize        int
@@ -58,7 +44,7 @@ func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
 			name: "test collecting and publishing VpcPrefix inventory, empty inventory",
 			fields: fields{
 				siteID:               uuid.New(),
-				nicoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 				temporalPublishQueue: "test-queue",
 				sitePageSize:         100,
 				cloudPageSize:        25,
@@ -71,7 +57,7 @@ func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
 			name: "test collecting and publishing VpcPrefix inventory, normal inventory",
 			fields: fields{
 				siteID:               uuid.New(),
-				nicoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 				temporalPublishQueue: "test-queue",
 				sitePageSize:         100,
 				cloudPageSize:        25,
@@ -91,7 +77,7 @@ func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
 
 			manageVpcPrefix := NewManageVpcPrefixInventory(ManageInventoryConfig{
 				SiteID:                tt.fields.siteID,
-				NICoCoreAtomicClient:  tt.fields.nicoCoreAtomicClient,
+				CoreGrpcAtomicClient:  tt.fields.coreGrpcAtomicClient,
 				TemporalPublishClient: tc,
 				TemporalPublishQueue:  tt.fields.temporalPublishQueue,
 				SitePageSize:          tt.fields.sitePageSize,
@@ -100,6 +86,7 @@ func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
 
 			ctx := context.Background()
 			ctx = context.WithValue(ctx, "wantCount", tt.args.wantTotalItems)
+			ctx = context.WithValue(ctx, "wantDeletedFilter", cwssaws.DeletedFilter_DELETED_FILTER_INCLUDE)
 
 			totalPages := tt.args.wantTotalItems / tt.fields.cloudPageSize
 			if tt.args.wantTotalItems%tt.fields.cloudPageSize > 0 {
@@ -135,16 +122,16 @@ func TestManageVpcPrefixInventory_DiscoverVpcPrefixInventory(t *testing.T) {
 }
 
 func TestManageVpcPrefix_CreateVpcPrefixOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	name := "best_VpcPrefix_ever"
 	prefix := "192.168.1.0/24"
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -159,7 +146,7 @@ func TestManageVpcPrefix_CreateVpcPrefixOnSite(t *testing.T) {
 		{
 			name: "test create VpcPrefix success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -175,7 +162,7 @@ func TestManageVpcPrefix_CreateVpcPrefixOnSite(t *testing.T) {
 		{
 			name: "test create VpcPrefix fail on missing id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -191,7 +178,7 @@ func TestManageVpcPrefix_CreateVpcPrefixOnSite(t *testing.T) {
 		{
 			name: "test create VpcPrefix fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -202,7 +189,7 @@ func TestManageVpcPrefix_CreateVpcPrefixOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageVpcPrefix(tt.fields.NICoCoreAtomicClient)
+			mm := NewManageVpcPrefix(tt.fields.coreGrpcAtomicClient)
 			err := mm.CreateVpcPrefixOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -214,13 +201,13 @@ func TestManageVpcPrefix_CreateVpcPrefixOnSite(t *testing.T) {
 }
 
 func TestManageVpcPrefix_UpdateVpcPrefixOnSiteOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -235,7 +222,7 @@ func TestManageVpcPrefix_UpdateVpcPrefixOnSiteOnSite(t *testing.T) {
 		{
 			name: "test update VpcPrefix success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -248,7 +235,7 @@ func TestManageVpcPrefix_UpdateVpcPrefixOnSiteOnSite(t *testing.T) {
 		{
 			name: "test update VpcPrefix fail on missing ID",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -261,7 +248,7 @@ func TestManageVpcPrefix_UpdateVpcPrefixOnSiteOnSite(t *testing.T) {
 		{
 			name: "test update VpcPrefix fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -272,7 +259,7 @@ func TestManageVpcPrefix_UpdateVpcPrefixOnSiteOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageVpcPrefix(tt.fields.NICoCoreAtomicClient)
+			mm := NewManageVpcPrefix(tt.fields.coreGrpcAtomicClient)
 			err := mm.UpdateVpcPrefixOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -284,13 +271,13 @@ func TestManageVpcPrefix_UpdateVpcPrefixOnSiteOnSite(t *testing.T) {
 }
 
 func TestManageVpcPrefix_DeleteVpcPrefixOnSiteOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -305,7 +292,7 @@ func TestManageVpcPrefix_DeleteVpcPrefixOnSiteOnSite(t *testing.T) {
 		{
 			name: "test delete VpcPrefix success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -318,7 +305,7 @@ func TestManageVpcPrefix_DeleteVpcPrefixOnSiteOnSite(t *testing.T) {
 		{
 			name: "test delete VpcPrefix fail on blank ID",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -331,7 +318,7 @@ func TestManageVpcPrefix_DeleteVpcPrefixOnSiteOnSite(t *testing.T) {
 		{
 			name: "test delete VpcPrefix fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -342,7 +329,7 @@ func TestManageVpcPrefix_DeleteVpcPrefixOnSiteOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageVpcPrefix(tt.fields.NICoCoreAtomicClient)
+			mm := NewManageVpcPrefix(tt.fields.coreGrpcAtomicClient)
 			err := mm.DeleteVpcPrefixOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)

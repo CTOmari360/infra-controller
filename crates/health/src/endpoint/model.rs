@@ -16,10 +16,8 @@
  */
 
 use std::borrow::Cow;
-use std::future::Future;
 use std::net::IpAddr;
-use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::NvLinkDomainId;
@@ -30,38 +28,14 @@ use mac_address::MacAddress;
 use url::Url;
 
 use crate::HealthError;
-
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-pub trait CredentialProvider: Send + Sync {
-    fn fetch_credentials<'a>(
-        &'a self,
-        endpoint: &'a BmcAddr,
-    ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>>;
-}
-
-#[derive(Clone)]
-pub struct FixedCredentialProvider {
-    credentials: BmcCredentials,
-}
-
-impl CredentialProvider for FixedCredentialProvider {
-    fn fetch_credentials<'a>(
-        &'a self,
-        _endpoint: &'a BmcAddr,
-    ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>> {
-        let credentials = self.credentials.clone();
-        Box::pin(async move { Ok(credentials) })
-    }
-}
+use crate::bmc::{BmcClient, BoxFuture};
 
 #[derive(Clone)]
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
     pub metadata: Option<EndpointMetadata>,
     pub rack_id: Option<RackId>,
-    pub(crate) credentials: Arc<RwLock<BmcCredentials>>,
-    pub(crate) provider: Arc<dyn CredentialProvider>,
+    pub bmc: Arc<BmcClient>,
 }
 
 impl BmcEndpoint {
@@ -78,25 +52,6 @@ impl BmcEndpoint {
         )
     }
 
-    pub fn with_fixed_credentials(
-        addr: BmcAddr,
-        credentials: BmcCredentials,
-        metadata: Option<EndpointMetadata>,
-        rack_id: Option<RackId>,
-    ) -> Self {
-        let provider = Arc::new(FixedCredentialProvider {
-            credentials: credentials.clone(),
-        });
-
-        Self {
-            addr,
-            metadata,
-            rack_id,
-            credentials: Arc::new(RwLock::new(credentials)),
-            provider,
-        }
-    }
-
     pub fn log_identity(&self) -> Cow<'_, str> {
         match &self.metadata {
             Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
@@ -106,21 +61,12 @@ impl BmcEndpoint {
         }
     }
 
+    pub fn bmc(&self) -> &Arc<BmcClient> {
+        &self.bmc
+    }
+
     pub fn switch_data(&self) -> Option<&SwitchData> {
         self.metadata.as_ref().and_then(EndpointMetadata::as_switch)
-    }
-
-    pub fn credentials(&self) -> BmcCredentials {
-        self.credentials.read().expect("lock poisoned").to_owned()
-    }
-
-    pub async fn refresh(&self) -> Result<BmcCredentials, HealthError> {
-        let credentials = self.provider.fetch_credentials(&self.addr).await?;
-        self.credentials
-            .write()
-            .map(|mut current| *current = credentials.clone())
-            .expect("lock poisoned");
-        Ok(credentials)
     }
 }
 
@@ -199,13 +145,21 @@ pub struct BmcAddr {
 }
 
 impl BmcAddr {
+    /// Builds the BMC base URL. IPv6 literals are bracketed so the URL
+    /// authority parses — a bare `IpAddr` Display leaves IPv6 unbracketed,
+    /// which `Url::parse` would otherwise reject.
     pub fn to_url(&self) -> Result<Url, url::ParseError> {
         let scheme = if self.port.is_some_and(|v| v == 80) {
             "http"
         } else {
             "https"
         };
-        let mut url = Url::parse(&format!("{}://{}", scheme, self.ip))?;
+        // Bracket IPv6 hosts; IPv4 renders unchanged.
+        let host = match self.ip {
+            IpAddr::V4(v4) => v4.to_string(),
+            IpAddr::V6(v6) => format!("[{v6}]"),
+        };
+        let mut url = Url::parse(&format!("{scheme}://{host}"))?;
         let _ = url.set_port(self.port);
         Ok(url)
     }
@@ -226,4 +180,46 @@ impl From<BmcCredentials> for nv_redfish::bmc_http::BmcCredentials {
 
 pub trait EndpointSource: Send + Sync {
     fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    use mac_address::MacAddress;
+
+    use super::BmcAddr;
+
+    fn addr(ip: &str, port: Option<u16>) -> BmcAddr {
+        BmcAddr {
+            ip: IpAddr::from_str(ip).unwrap(),
+            port,
+            mac: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+        }
+    }
+
+    // A v6 BMC IP must render as a bracketed URL authority, else Url::parse rejects it.
+    #[test]
+    fn to_url_brackets_ipv6() {
+        let url = addr("2001:db8::1", Some(443)).to_url().unwrap();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host_str(), Some("[2001:db8::1]"));
+    }
+
+    // v4 hosts are byte-identical to the old behaviour.
+    #[test]
+    fn to_url_v4_unchanged() {
+        let url = addr("10.0.0.5", Some(443)).to_url().unwrap();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host_str(), Some("10.0.0.5"));
+    }
+
+    // Port 80 selects the http scheme (v6 still bracketed).
+    #[test]
+    fn to_url_port_80_is_http() {
+        let url = addr("2001:db8::1", Some(80)).to_url().unwrap();
+        assert_eq!(url.scheme(), "http");
+        assert_eq!(url.host_str(), Some("[2001:db8::1]"));
+    }
 }

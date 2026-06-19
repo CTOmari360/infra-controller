@@ -44,7 +44,7 @@ If you use a coding agent that has shell access, point it at [`cli/INSTALL.md`](
 
 ```text
 Install nicocli following the instructions at
-https://github.com/NVIDIA/infra-controller-rest/blob/main/cli/INSTALL.md
+https://github.com/NVIDIA/infra-controller/rest-api/blob/main/cli/INSTALL.md
 ```
 
 ### Inside the nico-rest-api container
@@ -148,13 +148,53 @@ These flags apply to every command and override the corresponding config values.
 | `--config` | `NICO_CONFIG` | Path to the config file (defaults to `~/.nico/config.yaml`) |
 | `--base-url` | `NICO_BASE_URL` | API base URL |
 | `--org` | `NICO_ORG` | Organization name |
+| `--api-name` | `NICO_API_NAME` | API path segment used in `/v2/org/<org>/<name>/...` routes (default: `nico`) |
 | `--token` | `NICO_TOKEN` | Bearer token (skips login) |
 | `--token-command`, `--auth-script` | `NICO_TOKEN_COMMAND`, `NICO_AUTH_SCRIPT` | Shell command/script that prints a bearer token on stdout |
 | `--token-url` | `NICO_TOKEN_URL` | OIDC token endpoint URL for login and refresh |
 | `--keycloak-url` | `NICO_KEYCLOAK_URL` | Keycloak base URL (constructs `--token-url` if not set) |
 | `--keycloak-realm` | `NICO_KEYCLOAK_REALM` | Keycloak realm (default: `nico-dev`) |
 | `--client-id` | `NICO_CLIENT_ID` | OAuth client ID (default: `nico-api`) |
-| `--debug` | | Log the full HTTP request and response for the call |
+| `--debug` | | Log the full HTTP request and response, plus every `NICO_*` environment variable in use |
+
+### Configuring with environment variables
+
+Every field in `~/.nico/config.yaml` can also be set via a `NICO_*` environment variable. When both a config value and an env var are present, the env var wins; an explicit command-line flag still beats both. Set any of these in your shell instead of editing the config file:
+
+| Env Var | Config field | Notes |
+|---------|--------------|-------|
+| `NICO_BASE_URL` | `api.base` | |
+| `NICO_ORG` | `api.org` | |
+| `NICO_API_NAME` | `api.name` | API path segment, defaults to `nico` |
+| `NICO_TOKEN` | `auth.token` | Direct bearer token |
+| `NICO_TOKEN_COMMAND` | `auth.token_command` | Shell command that prints a bearer token |
+| `NICO_AUTH_SCRIPT` | `auth.token_command` | Alias of `NICO_TOKEN_COMMAND` (canonical name wins when both set) |
+| `NICO_TOKEN_URL` | `auth.oidc.token_url` | |
+| `NICO_CLIENT_ID` | `auth.oidc.client_id` | |
+| `NICO_CLIENT_SECRET` | `auth.oidc.client_secret` | |
+| `NICO_OIDC_USERNAME` | `auth.oidc.username` | |
+| `NICO_OIDC_PASSWORD` | `auth.oidc.password` | |
+| `NICO_OIDC_TOKEN` | `auth.oidc.token` | Persisted bearer token (also honored by direct `NICO_TOKEN`) |
+| `NICO_OIDC_REFRESH_TOKEN` | `auth.oidc.refresh_token` | |
+| `NICO_OIDC_EXPIRES_AT` | `auth.oidc.expires_at` | RFC3339 timestamp |
+| `NICO_API_KEY` | `auth.api_key.key` | NGC API key |
+| `NICO_AUTHN_URL` | `auth.api_key.authn_url` | Required for legacy NGC keys; ignored for `nvapi-` bearer keys |
+| `NICO_API_KEY_TOKEN` | `auth.api_key.token` | Persisted token after NGC exchange |
+
+`NICO_KEYCLOAK_URL` and `NICO_KEYCLOAK_REALM` do not map to a single config field; they feed the login command and construct the OIDC `token_url` at login time.
+
+To see exactly which `NICO_*` variables are in use right now, pass `--debug` on any command:
+
+```bash
+nicocli --debug site list
+# stderr starts with:
+# [debug] env: 3 NICO_* variable(s) in use
+# [debug] env: NICO_BASE_URL = https://api.example.com  -> api.base
+# [debug] env: NICO_ORG      = my-org                   -> api.org
+# [debug] env: NICO_TOKEN    = eyJh...                  -> auth.token (sensitive)
+```
+
+In interactive mode, type `env` to see the same listing (`env --mask` redacts tokens, secrets, and passwords).
 
 ### Per-command flags
 
@@ -197,8 +237,8 @@ Tokens are saved to the active config file (`~/.nico/config.yaml` by default, or
 
 | Flag | Env Var | Description |
 |------|---------|-------------|
-| `--username` | | Username for OIDC password grant |
-| `--password` | | Password for OIDC password grant (prompted if not provided) |
+| `--username` | `NICO_OIDC_USERNAME` | Username for OIDC password grant |
+| `--password` | `NICO_OIDC_PASSWORD` | Password for OIDC password grant (prompted if not provided) |
 | `--client-secret` | `NICO_CLIENT_SECRET` | Client secret for confidential OIDC clients (also enables the client-credentials grant when no username is set) |
 | `--api-key` | `NICO_API_KEY` | NGC API key to exchange for a bearer token |
 | `--authn-url` | `NICO_AUTHN_URL` | NGC authentication URL for the API-key exchange |
@@ -291,6 +331,69 @@ To skip the config selector and connect to a specific environment directly:
 
 ```bash
 nicocli --config ~/.nico/config.prod.yaml tui
+```
+
+## MCP Server Mode
+
+The NICo MCP server exposes the NICo REST read surface (every `GET` operation in the embedded OpenAPI spec) as Model Context Protocol tools over streamable-HTTP.
+
+The server ships as its own binary, `nico-mcp`, so that neither the MCP server code nor its MCP SDK dependency are linked into `nicocli`. Build and run it directly — `nicocli mcp` prints these same build/run instructions but never launches `nico-mcp` itself.
+
+```bash
+# Build and install nico-mcp (from the rest-api directory):
+make nico-mcp
+
+# Run the standalone server:
+nico-mcp --listen :8080 --path /mcp --base-url https://nico.example.com --org tester
+```
+
+Install the binaries with `make nico-cli` and `make nico-mcp`, run from the `rest-api` directory.
+
+### Properties
+
+- **Read-only.** Only `GET` operations are exposed. Mutating routes (`POST`, `PATCH`, `PUT`, `DELETE`) are intentionally excluded.
+- **Tool naming.** Tools are named `nico_<snake_case(operationId)>` (e.g. `nico_get_all_site`, `nico_validate_rack`).
+- **Stateless and request/response only.** The server sets `Stateless: true` and `JSONResponse: true` on the MCP streamable-HTTP handler -- responses are always `Content-Type: application/json`, never `text/event-stream`, and the server retains no per-session state.
+- **JWT passthrough.** The `Authorization: Bearer <jwt>` header on the inbound MCP request is forwarded unchanged to NICo REST. NICo REST validates the JWT, resolves the caller org, and enforces role-based authorization. The MCP layer never makes the authz decision itself.
+
+### Flags
+
+| Flag | Env Var | Description |
+|------|---------|-------------|
+| `--listen` | `NICO_MCP_LISTEN` | Listen address (default `:8080`) |
+| `--path` | `NICO_MCP_PATH` | HTTP path the MCP handler is mounted at (default `/mcp`) |
+| `--shutdown-timeout` | `NICO_MCP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout (default `10s`) |
+
+`--base-url`, `--org`, `--api-name`, and `--token` are accepted directly by `nico-mcp` and provide optional server-side defaults; each also reads its `NICO_*` environment variable. The MCP server does **not** read `~/.nico/config.yaml`: it is stateless and entirely parameter-driven, so it starts cleanly with no config file present and every connection detail is supplied per tool call (see below), falling back to these flags only when an argument is omitted.
+
+### Per-call config overrides
+
+Every typical config value can also be passed as an argument on each MCP tool call, layered on top of the server defaults:
+
+| Tool arg | Equivalent flag | Config field |
+|----------|-----------------|--------------|
+| `org` | `--org` | `api.org` |
+| `base_url` | `--base-url` | `api.base` |
+| `api_name` | `--api-name` | `api.name` |
+| `token` | `--token` | `auth.token` |
+
+Precedence per tool call (first non-empty wins): tool argument -> inbound `Authorization` header (token only) -> server startup flag/env. The MCP server does not read the on-disk config file. OIDC credentials and NGC api_key settings are NOT exposed as tool arguments -- they are login-flow inputs configured server-side via flags/env.
+
+### Probing the server
+
+```bash
+# List the tool catalogue
+curl -sS http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq
+
+# Call a specific tool
+curl -sS http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nico_get_all_site","arguments":{}}}' | jq
 ```
 
 ## Troubleshooting

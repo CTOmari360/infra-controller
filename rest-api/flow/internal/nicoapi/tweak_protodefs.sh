@@ -1,20 +1,6 @@
 #!/bin/bash
-
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 
 # This script tweaks the original protodefs from nico because they're messy in a way that keeps us from building.
 # Try and keep this script safe to rerun on the protodefs multiple times.
@@ -27,6 +13,15 @@ sedi() {
         sed -i "$@"
     fi
 }
+
+# Upstream Core renamed nico.proto -> forge.proto. Flow keeps the nico.proto filename.
+if [[ -f nicoproto/forge.proto ]]; then
+    if [[ -f nicoproto/nico.proto ]]; then
+        rm -f nicoproto/forge.proto
+    else
+        mv nicoproto/forge.proto nicoproto/nico.proto
+    fi
+fi
 
 # dpa_rpc.proto has a duplicate message "Metadata", we don't need any of it so just remove it
 rm -f nicoproto/dpa_rpc.proto
@@ -55,6 +50,15 @@ sedi -e '/dns\.Domain/d' nicoproto/nico.proto
 # Remove comments referencing dns.proto
 sedi -e '/dns\.proto/d' nicoproto/nico.proto
 
+# scout_firmware_upgrade.proto is unused by Flow (Core-side reporting RPC).
+# Strip it and the few nico.proto references so we don't carry dead generated code.
+rm -f nicoproto/scout_firmware_upgrade.proto
+sedi -e '/^import.*scout_firmware_upgrade\.proto/d' nicoproto/nico.proto
+sedi -e '/rpc ReportScoutFirmwareUpgradeStatus/d' nicoproto/nico.proto
+# Drop the FirmwareUpgrade.task field whose type lives in the scout namespace;
+# the empty nested FirmwareUpgrade message that remains is valid proto3.
+sedi -e '/scout_firmware_upgrade\./d' nicoproto/nico.proto
+
 # Both site explorer and main nico have a PowerState enum
 sedi -e 's/ PowerState/ ComputerSystemPowerState/g' nicoproto/site_explorer.proto
 
@@ -67,18 +71,6 @@ sedi -e 's/MachineValidationStarted started/MachineValidationStarted oneof_start
 # Prepend SPDX license header to all proto files so protoc-gen-go carries it into generated .pb.go
 LICENSE_HEADER="// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-//
-// Licensed under the Apache License, Version 2.0 (the \"License\");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an \"AS IS\" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 "
 for f in nicoproto/*.proto; do
     if ! head -1 "$f" | grep -q "SPDX"; then

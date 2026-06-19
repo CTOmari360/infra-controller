@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nico
 
@@ -21,13 +7,17 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 func TestInjectExpectation(t *testing.T) {
@@ -72,7 +62,7 @@ func TestInjectExpectation(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			m := New(tc.client)
+			m := New(tc.client, nil)
 
 			target := common.Target{
 				Type:         devicetypes.ComponentTypePowerShelf,
@@ -93,7 +83,7 @@ func TestInjectExpectation(t *testing.T) {
 }
 
 func TestPowerControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient())
+	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypePowerShelf,
@@ -107,7 +97,7 @@ func TestPowerControl(t *testing.T) {
 }
 
 func TestFirmwareControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient())
+	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypePowerShelf,
@@ -121,7 +111,7 @@ func TestFirmwareControl(t *testing.T) {
 }
 
 func TestGetFirmwareStatus(t *testing.T) {
-	m := New(nicoapi.NewMockClient())
+	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypePowerShelf,
@@ -131,6 +121,123 @@ func TestGetFirmwareStatus(t *testing.T) {
 	statuses, err := m.GetFirmwareStatus(context.Background(), target)
 	assert.NoError(t, err)
 	assert.NotNil(t, statuses)
+}
+
+// newManagerForReadinessTest builds a Manager with a tight-timeout
+// readiness gate backed by the supplied MemReader so the wait loop
+// actually times out within the test budget. The caller seeds the
+// reader with the rack→hosts mapping and any ComponentOperationStatus rows the
+// test scenario requires.
+func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *readiness.MemReader) *Manager {
+	t.Helper()
+	gate := readiness.NewDBGate(reader, 50*time.Millisecond, 10*time.Millisecond)
+	return New(client, gate)
+}
+
+// inUseStatus returns a status that blocks every disruptive operation,
+// mirroring what inventorysync would persist for a tenant-attached host.
+func inUseStatus() *types.ComponentOperationStatus {
+	return &types.ComponentOperationStatus{
+		Phase:  types.PhaseInUse,
+		Reason: "tenant attached",
+		BlockedOperations: []types.OperationType{
+			types.OperationTypePowerControl,
+			types.OperationTypeFirmwareControl,
+		},
+	}
+}
+
+func TestPowerControl_RefusesWhenRackHostInUse(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.SetPowerShelfRackID("ps-1", "rack-A")
+
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, client, reader)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypePowerShelf,
+		ComponentIDs: []string{"ps-1"},
+	}
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperationPowerOff,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	assert.Contains(t, err.Error(), "timed out")
+	assert.Contains(t, err.Error(), "host-1")
+}
+
+func TestPowerControl_AllowsWhenRackHostsReady(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.SetPowerShelfRackID("ps-1", "rack-A")
+
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", &types.ComponentOperationStatus{Phase: types.PhaseReady})
+
+	m := newManagerForReadinessTest(t, client, reader)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypePowerShelf,
+		ComponentIDs: []string{"ps-1"},
+	}
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperationPowerOn,
+	})
+	require.NoError(t, err)
+}
+
+func TestFirmwareControl_RefusesWhenRackHostInUse(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.SetPowerShelfRackID("ps-1", "rack-A")
+
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, client, reader)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypePowerShelf,
+		ComponentIDs: []string{"ps-1"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:     operations.FirmwareOperationUpgrade,
+		TargetVersion: "1.0.0",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	assert.Contains(t, err.Error(), "timed out")
+}
+
+// TestFirmwareControl_OverrideBypassesReadinessCheck verifies that
+// OverrideReadinessCheck short-circuits the rack-scoped gate on
+// PowerShelf FirmwareControl. A host on the resolved rack is reported
+// as in-use — which would otherwise block the call — yet the
+// operation is expected to proceed past the gate.
+func TestFirmwareControl_OverrideBypassesReadinessCheck(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.SetPowerShelfRackID("ps-1", "rack-A")
+
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, client, reader)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypePowerShelf,
+		ComponentIDs: []string{"ps-1"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:              operations.FirmwareOperationUpgrade,
+		TargetVersion:          "1.0.0",
+		OverrideReadinessCheck: true,
+	})
+	require.NoError(t, err)
 }
 
 func mustMarshal(t *testing.T, v any) json.RawMessage {

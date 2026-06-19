@@ -4,10 +4,11 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use model::component_manager::{ComputeTrayComponent, FirmwareState, PowerAction};
 
 use crate::error::ComponentManagerError;
+use crate::types::FirmwareUpdateOptions;
 
 /// Physical network identifiers for a compute tray, used to register with and
 /// operate against the backend service (CTM).
@@ -54,8 +55,8 @@ pub struct ComputeTrayFirmwareUpdateStatus {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    #[default]
     Core,
+    #[default]
     Rms,
     Mock,
 }
@@ -92,6 +93,7 @@ pub trait ComputeTrayManager: Send + Sync + Debug + 'static {
         endpoints: &[ComputeTrayEndpoint],
         target_version: &str,
         components: &[ComputeTrayComponent],
+        options: &FirmwareUpdateOptions,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError>;
 
     async fn get_firmware_status(

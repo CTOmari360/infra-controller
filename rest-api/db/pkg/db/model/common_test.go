@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,50 +8,41 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-func TestLabelsFromProtoMetadata(t *testing.T) {
+func TestLabels_FromProto(t *testing.T) {
 	tests := []struct {
-		name string
-		md   *cwssaws.Metadata
-		want map[string]string
+		name        string
+		protoLabels []*cwssaws.Label
+		want        Labels
 	}{
 		{
-			name: "nil metadata",
-			md:   nil,
-			want: nil,
+			name:        "nil slice clears receiver",
+			protoLabels: nil,
+			want:        nil,
 		},
 		{
-			name: "nil labels slice",
-			md:   &cwssaws.Metadata{Labels: nil},
-			want: nil,
-		},
-		{
-			name: "empty labels slice",
-			md:   &cwssaws.Metadata{Labels: []*cwssaws.Label{}},
-			want: map[string]string{},
+			name:        "empty slice yields empty map",
+			protoLabels: []*cwssaws.Label{},
+			want:        Labels{},
 		},
 		{
 			name: "single label with value",
-			md: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
-					{Key: "environment", Value: db.GetStrPtr("production")},
-				},
+			protoLabels: []*cwssaws.Label{
+				{Key: "environment", Value: cutil.GetPtr("production")},
 			},
-			want: map[string]string{"environment": "production"},
+			want: Labels{"environment": "production"},
 		},
 		{
 			name: "multiple labels",
-			md: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
-					{Key: "environment", Value: db.GetStrPtr("production")},
-					{Key: "rack", Value: db.GetStrPtr("rack-1")},
-					{Key: "datacenter", Value: db.GetStrPtr("dc1")},
-				},
+			protoLabels: []*cwssaws.Label{
+				{Key: "environment", Value: cutil.GetPtr("production")},
+				{Key: "rack", Value: cutil.GetPtr("rack-1")},
+				{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 			},
-			want: map[string]string{
+			want: Labels{
 				"environment": "production",
 				"rack":        "rack-1",
 				"datacenter":  "dc1",
@@ -73,37 +50,32 @@ func TestLabelsFromProtoMetadata(t *testing.T) {
 		},
 		{
 			name: "label with nil value yields empty string",
-			md: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
-					{Key: "flag", Value: nil},
-				},
+			protoLabels: []*cwssaws.Label{
+				{Key: "flag", Value: nil},
 			},
-			want: map[string]string{"flag": ""},
+			want: Labels{"flag": ""},
 		},
 		{
 			name: "label with empty key is skipped",
-			md: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
-					{Key: "", Value: db.GetStrPtr("value")},
-					{Key: "valid", Value: db.GetStrPtr("data")},
-				},
+			protoLabels: []*cwssaws.Label{
+				{Key: "", Value: cutil.GetPtr("value")},
+				{Key: "valid", Value: cutil.GetPtr("data")},
 			},
-			want: map[string]string{"valid": "data"},
+			want: Labels{"valid": "data"},
 		},
 		{
 			name: "nil label entry is skipped",
-			md: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
-					nil,
-					{Key: "valid", Value: db.GetStrPtr("data")},
-				},
+			protoLabels: []*cwssaws.Label{
+				nil,
+				{Key: "valid", Value: cutil.GetPtr("data")},
 			},
-			want: map[string]string{"valid": "data"},
+			want: Labels{"valid": "data"},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := LabelsFromProtoMetadata(tc.md)
+			var got Labels
+			got.FromProto(tc.protoLabels)
 			if tc.want == nil {
 				assert.Nil(t, got)
 			} else {
@@ -111,4 +83,83 @@ func TestLabelsFromProtoMetadata(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLabels_FromProto_OverwritesExistingReceiver verifies that the
+// method replaces the receiver wholesale, mirroring `ToProto` semantics:
+// pre-existing entries are not preserved across calls. The pointer
+// receiver makes the nil-input case observable (existing labels become
+// nil), which mirrors how the workflow `Metadata.Labels` round-trips a
+// "labels explicitly cleared" signal.
+func TestLabels_FromProto_OverwritesExistingReceiver(t *testing.T) {
+	t.Run("populated input replaces existing entries", func(t *testing.T) {
+		l := Labels{"stale": "value", "kept-key": "old"}
+		l.FromProto([]*cwssaws.Label{
+			{Key: "kept-key", Value: cutil.GetPtr("new")},
+			{Key: "fresh", Value: cutil.GetPtr("data")},
+		})
+		assert.Equal(t, Labels{"kept-key": "new", "fresh": "data"}, l)
+	})
+
+	t.Run("nil input clears existing entries", func(t *testing.T) {
+		l := Labels{"stale": "value"}
+		l.FromProto(nil)
+		assert.Nil(t, l)
+	})
+}
+
+// labelsAsMap collapses a proto Label slice into a Labels map so assertions
+// don't depend on slice ordering (user labels come from a map iteration).
+func labelsAsMap(protoLabels []*cwssaws.Label) Labels {
+	var l Labels
+	l.FromProto(protoLabels)
+	return l
+}
+
+func TestExpectedComponentLabelsInput_ToProto(t *testing.T) {
+	t.Run("merges user labels with the flat device fields", func(t *testing.T) {
+		got := labelsAsMap(expectedComponentLabelsInput{
+			Manufacturer: cutil.GetPtr("NVIDIA"),
+			Model:        cutil.GetPtr("MGX"),
+			SlotID:       cutil.GetPtr(int32(3)),
+			TrayIdx:      cutil.GetPtr(int32(0)), // zero is a valid position
+			HostID:       cutil.GetPtr(int32(1)),
+			Labels:       Labels{"environment": "prod", "team": "infra"},
+		}.ToProto())
+		assert.Equal(t, Labels{
+			"environment":  "prod",
+			"team":         "infra",
+			"manufacturer": "NVIDIA",
+			"model":        "MGX",
+			"slot_id":      "3",
+			"tray_idx":     "0",
+			"host_id":      "1",
+		}, got)
+	})
+
+	t.Run("returns nil when there are no labels", func(t *testing.T) {
+		assert.Nil(t, expectedComponentLabelsInput{}.ToProto())
+	})
+
+	t.Run("device fields only, no user labels", func(t *testing.T) {
+		got := labelsAsMap(expectedComponentLabelsInput{
+			Manufacturer: cutil.GetPtr("NVIDIA"),
+			SlotID:       cutil.GetPtr(int32(0)),
+		}.ToProto())
+		assert.Equal(t, Labels{
+			"manufacturer": "NVIDIA",
+			"slot_id":      "0",
+		}, got)
+	})
+
+	t.Run("system field wins over a conflicting user label", func(t *testing.T) {
+		got := labelsAsMap(expectedComponentLabelsInput{
+			Manufacturer: cutil.GetPtr("NVIDIA"),
+			Labels:       Labels{"manufacturer": "user-supplied", "extra": "kept"},
+		}.ToProto())
+		assert.Equal(t, Labels{
+			"manufacturer": "NVIDIA", // system value wins
+			"extra":        "kept",   // non-conflicting user label preserved
+		}, got)
+	})
 }

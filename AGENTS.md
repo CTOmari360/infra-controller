@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file provides guidance for AI coding agents working in the
-`ncx-infra-controller-core` repository.
+`infra-controller` repository.
 
 ## Project Overview
 
@@ -26,7 +26,7 @@ to fast-track building next-generation AI Cloud offerings.
 ## Repository Structure
 
 ```
-ncx-infra-controller-core/
+infra-controller/
 ├── crates/              # Rust crate implementations. To discover all crates
 │                        # and their purpose, run `ls crates/` or see the
 │                        # [workspace] members list in `Cargo.toml` — each
@@ -42,7 +42,7 @@ ncx-infra-controller-core/
 ├── helm/                # Helm chart for Kubernetes deployment
 ├── bluefield/           # BlueField DPU-specific components
 ├── pxe/                 # PXE boot artifact generation
-├── lints/               # Custom Clippy lints (nico-lints crate)
+├── lints/               # Custom Clippy lints (carbide-lints crate)
 ├── include/             # Shared Makefile fragments
 ├── .github/             # GitHub Actions workflows and templates
 ├── Cargo.toml           # Workspace dependency management
@@ -96,6 +96,11 @@ cargo test
 cargo make correctly-execute-tests
 ```
 
+When writing tests, prefer the **table-driven** style — see the [Testing section in `STYLE_GUIDE.md`](STYLE_GUIDE.md#testing).
+Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
+or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
+conversions, and the like.
+
 ### Linting and Formatting
 
 ```bash
@@ -104,9 +109,8 @@ cargo make pre-commit-verify-workspace
 
 # Individual checks:
 cargo make clippy              # Clippy linter (warnings = errors)
-cargo make nico-lints       # Custom nico lints (requires nightly setup)
-cargo make check-format-flow   # Check rustfmt formatting
-cargo make check-format-nightly # Check import grouping/sorting (requires nightly)
+cargo make carbide-lints       # Custom lints (requires nightly setup)
+cargo make check-format-nightly # Check rustfmt formatting
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies
@@ -117,7 +121,7 @@ cargo make format-nightly      # Also sort imports
 ```
 
 > **Note:** The nightly toolchain is used only for `check-format-nightly` and
-> `nico-lints`. The stable toolchain pinned in `rust-toolchain.toml` is used
+> `carbide-lints`. The stable toolchain pinned in `rust-toolchain.toml` is used
 > for everything else.
 
 ### Top-level Makefile (rest-api entrypoint)

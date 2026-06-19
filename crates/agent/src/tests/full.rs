@@ -89,11 +89,19 @@ async fn test_traffic_intercept_bridging() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/update_intercept_bridging.sh.expected");
     let bridging = traffic_intercept_bridging::build(
         traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-            secondary_overlay_vtep_ip: "1.1.1.1".to_string(),
+            secondary_overlay_vtep_ip: "1.1.1.1".parse().unwrap(),
             secondary_vtep_aggregate_prefixes: vec!["1.1.1.0/24".to_string()],
             vf_intercept_bridge_ip: "10.10.10.2".to_string(),
             vf_intercept_bridge_name: "pfdpu000br-dpu".to_string(),
             intercept_bridge_prefix_len: 29,
+            host_representor_bridge_vni_mappings: vec![
+                traffic_intercept_bridging::TrafficInterceptBridgeMapping {
+                    bridge: "pf0-br".to_string(),
+                    vni: 333,
+                    patch_port: "patch-pf01".to_string(),
+                    gateway: "10.1.1.0/31".to_string(),
+                },
+            ],
         },
     )?;
 
@@ -268,7 +276,7 @@ async fn run_common_parts(
     virtualization_type: VpcVirtualizationType,
     test_metadata_service: bool,
 ) -> eyre::Result<TestOut> {
-    carbide_host_support::init_logging()?;
+    carbide_host_support::init_logging("nico-dpu-agent")?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
     state.lock().await.virtualization_type = virtualization_type;
@@ -865,11 +873,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         traffic_intercept_config: Some(rpc::forge::TrafficInterceptConfig {
             bridging: Some(rpc::forge::TrafficInterceptBridging {
                 internal_bridge_routing_prefix: "10.255.255.0/29".to_string(),
-                host_intercept_bridge_name: "br-host".to_string(),
+                hbn_bridge: "br-hbn".to_string(),
                 vf_intercept_bridge_name: "br-dpu".to_string(),
                 vf_intercept_bridge_port: "pfdpu000br-dpu".to_string(),
                 vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                host_intercept_bridge_port: "pfdpu000br-host".to_string(),
+                host_representor_intercept_bridging: Default::default(),
             }),
             additional_overlay_vtep_ip: Some("10.2.2.1".to_string()),
             public_prefixes: vec!["7.8.0.0/16".to_string()],
@@ -877,6 +885,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         }),
 
         dhcp_servers: vec!["127.0.0.1".to_string()],
+        ntp_servers: vec![],
         vni_device: "".to_string(),
 
         managed_host_config: Some(rpc::forge::ManagedHostNetworkConfig {
@@ -956,10 +965,12 @@ async fn handle_get_dpu_info_list(
             DpuInfo {
                 id: "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg".to_string(),
                 loopback_ip: "172.20.0.119".to_string(),
+                observed_status: None,
             },
             DpuInfo {
                 id: "fm100dsjd1vuk6gklgvh0ao8t7r7tk1pt101ub5ck0g3j7lqcm8h3rf1p8g".to_string(),
                 loopback_ip: "172.20.0.200".to_string(),
+                observed_status: None,
             },
         ],
     })

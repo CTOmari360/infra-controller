@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nicoapi
 
@@ -26,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -39,10 +26,31 @@ import (
 const (
 	healthProbeIDMaintenance               = "Maintenance"
 	classificationSuppressExternalAlerting = "SuppressExternalAlerting"
+
+	// healthProbeIDHostUpdateInProgress is the canonical probe id Core
+	// expects in the precondition health alert checked by
+	// `trigger_dpu_reprovisioning`. The string is intentionally
+	// duplicated rather than imported from Core's Rust constants because
+	// Flow does not link against Core's binaries; the string itself is
+	// the API contract. See crates/api-model/src/machine_update_module.rs::HOST_UPDATE_HEALTH_PROBE_ID.
+	healthProbeIDHostUpdateInProgress = "HostUpdateInProgress"
+
+	// healthReportSourceHostUpdate is the source tag matching Core's
+	// HOST_UPDATE_HEALTH_REPORT_SOURCE constant. RemoveMachineHealthReport
+	// deletes by (machine_id, source), so this must agree byte-for-byte
+	// with Core or the cleanup path leaks the override.
+	healthReportSourceHostUpdate = "host-update"
+
+	// classificationPreventAllocations is the alert classification Core
+	// requires on the HostUpdateInProgress alert before
+	// `trigger_dpu_reprovisioning` will accept the request. Mirrors
+	// HealthAlertClassification::prevent_allocations() in
+	// crates/health-report/src/lib.rs.
+	classificationPreventAllocations = "PreventAllocations"
 )
 
 type grpcClient struct {
-	gclient     pb.NICoClient
+	gclient     pb.ForgeClient
 	grpcTimeout time.Duration
 }
 
@@ -71,12 +79,16 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(nicoURL, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	conn, err := grpc.NewClient(
+		nicoURL,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to connect to nico-core-api: %w", err)
 	}
 
-	return &grpcClient{gclient: pb.NewNICoClient(conn), grpcTimeout: grpcTimeout}, nil
+	return &grpcClient{gclient: pb.NewForgeClient(conn), grpcTimeout: grpcTimeout}, nil
 }
 
 // GetMachines retrieves all machines known by nico-core-api
@@ -111,8 +123,8 @@ func (c *grpcClient) GetMachines(ctx context.Context) ([]MachineDetail, error) {
 	return result, nil
 }
 
-// GetMachines retrieves all machines known by nico-core-api
-// (FindMachineIds + FindMachinesByIds).
+// GetLeakingMachineIds retrieves IDs of all machines which are leaking and are powered on.
+// The search filter passed in to FindMachineIds limits the results to these two conditions.
 func (c *grpcClient) GetLeakingMachineIds(ctx context.Context) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer cancel()
@@ -132,6 +144,31 @@ func (c *grpcClient) GetLeakingMachineIds(ctx context.Context) ([]string, error)
 	ids := make([]string, 0, len(machineIDs.GetMachineIds()))
 	for _, machineID := range machineIDs.GetMachineIds() {
 		ids = append(ids, machineID.GetId())
+	}
+	return ids, nil
+}
+
+// GetLeakingSwitchIds retrieves IDs of all switches which are leaking.
+// The search filter passed in to FindSwitchIds limits the results to this condition.
+// Once we have the ability to limit the results to powered on switches,
+// we can add that condition to the search filter.
+func (c *grpcClient) GetLeakingSwitchIds(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	alert := "hardware-health.tray-leak-detection"
+	searchConfig := pb.SwitchSearchFilter{
+		OnlyWithHealthAlert: &alert,
+	}
+
+	switchIDs, err := c.gclient.FindSwitchIds(ctx, &searchConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(switchIDs.GetIds()))
+	for _, switchID := range switchIDs.GetIds() {
+		ids = append(ids, switchID.GetId())
 	}
 	return ids, nil
 }
@@ -261,6 +298,213 @@ func (c *grpcClient) FindMachinesByIds(ctx context.Context, machineIds []string)
 	var result []MachineDetail
 	for _, machine := range res.Machines {
 		result = append(result, machineDetailFromPb(machine))
+	}
+	return result, nil
+}
+
+// FindHostMachineIdsByRack queries Core for host machines (DPUs excluded) on
+// the given rack and returns their machine IDs.
+func (c *grpcClient) FindHostMachineIdsByRack(ctx context.Context, rackID string) ([]string, error) {
+	if rackID == "" {
+		return nil, errors.New("rack ID is required")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	cfg := &pb.MachineSearchConfig{
+		RackId: &pb.RackId{Id: rackID},
+		// include_dpus defaults to false; exclude_hosts defaults to false.
+		// We want hosts only because Assigned is a host-only state.
+	}
+
+	res, err := c.gclient.FindMachineIds(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("FindMachineIds for rack %s: %w", rackID, err)
+	}
+
+	ids := make([]string, 0, len(res.GetMachineIds()))
+	for _, mid := range res.GetMachineIds() {
+		if id := mid.GetId(); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// FindSwitchRackIDs returns the rack assignment of each given switch.
+func (c *grpcClient) FindSwitchRackIDs(ctx context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.SwitchesByIdsRequest{
+		SwitchIds: make([]*pb.SwitchId, 0, len(switchIds)),
+	}
+	for _, id := range switchIds {
+		req.SwitchIds = append(req.SwitchIds, &pb.SwitchId{Id: id})
+	}
+
+	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetSwitches()))
+	for _, sw := range resp.GetSwitches() {
+		sid := sw.GetId().GetId()
+		if sid == "" {
+			continue
+		}
+		if rid := sw.GetRackId().GetId(); rid != "" {
+			result[sid] = rid
+		}
+	}
+	return result, nil
+}
+
+// FindSwitchControllerStates returns the raw controller_state string Core
+// reports for each switch. Switches without a controller_state (e.g. legacy
+// rows or transient errors) are simply omitted from the result map.
+func (c *grpcClient) FindSwitchControllerStates(ctx context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.SwitchesByIdsRequest{
+		SwitchIds: make([]*pb.SwitchId, 0, len(switchIds)),
+	}
+	for _, id := range switchIds {
+		req.SwitchIds = append(req.SwitchIds, &pb.SwitchId{Id: id})
+	}
+
+	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetSwitches()))
+	for _, sw := range resp.GetSwitches() {
+		sid := sw.GetId().GetId()
+		if sid == "" {
+			continue
+		}
+		if s := sw.GetControllerState(); s != "" {
+			result[sid] = s
+		}
+	}
+	return result, nil
+}
+
+// FindSwitchNvosIPs returns the resolved NVOS host IP for each given switch,
+// keyed by Core SwitchId. Core resolves nvos_info from the expected switch's
+// NVOS MAC and its assigned interface address, and only populates it once both
+// are known, so switches without a resolved NVOS endpoint are omitted.
+func (c *grpcClient) FindSwitchNvosIPs(ctx context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.SwitchesByIdsRequest{
+		SwitchIds: make([]*pb.SwitchId, 0, len(switchIds)),
+	}
+	for _, id := range switchIds {
+		req.SwitchIds = append(req.SwitchIds, &pb.SwitchId{Id: id})
+	}
+
+	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetSwitches()))
+	for _, sw := range resp.GetSwitches() {
+		sid := sw.GetId().GetId()
+		if sid == "" {
+			continue
+		}
+		if ip := sw.GetNvosInfo().GetIp(); ip != "" {
+			result[sid] = ip
+		}
+	}
+	return result, nil
+}
+
+// FindPowerShelfRackIDs returns the rack assignment of each given power shelf.
+func (c *grpcClient) FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error) {
+	if len(shelfIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.PowerShelvesByIdsRequest{
+		PowerShelfIds: make([]*pb.PowerShelfId, 0, len(shelfIds)),
+	}
+	for _, id := range shelfIds {
+		req.PowerShelfIds = append(req.PowerShelfIds, &pb.PowerShelfId{Id: id})
+	}
+
+	resp, err := c.gclient.FindPowerShelvesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetPowerShelves()))
+	for _, ps := range resp.GetPowerShelves() {
+		pid := ps.GetId().GetId()
+		if pid == "" {
+			continue
+		}
+		if rid := ps.GetRackId().GetId(); rid != "" {
+			result[pid] = rid
+		}
+	}
+	return result, nil
+}
+
+// FindPowerShelfControllerStates returns the raw controller_state string Core
+// reports for each power shelf. Shelves without a controller_state are
+// omitted from the result map.
+func (c *grpcClient) FindPowerShelfControllerStates(ctx context.Context, shelfIds []string) (map[string]string, error) {
+	if len(shelfIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.PowerShelvesByIdsRequest{
+		PowerShelfIds: make([]*pb.PowerShelfId, 0, len(shelfIds)),
+	}
+	for _, id := range shelfIds {
+		req.PowerShelfIds = append(req.PowerShelfIds, &pb.PowerShelfId{Id: id})
+	}
+
+	resp, err := c.gclient.FindPowerShelvesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetPowerShelves()))
+	for _, ps := range resp.GetPowerShelves() {
+		pid := ps.GetId().GetId()
+		if pid == "" {
+			continue
+		}
+		if s := ps.GetControllerState(); s != "" {
+			result[pid] = s
+		}
 	}
 	return result, nil
 }
@@ -459,9 +703,9 @@ func (c *grpcClient) InsertHealthReportOverride(ctx context.Context, machineID s
 	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer cancel()
 
-	req := &pb.InsertHealthReportOverrideRequest{
+	req := &pb.InsertMachineHealthReportRequest{
 		MachineId: &pb.MachineId{Id: machineID},
-		Override: &pb.HealthReportOverride{
+		HealthReportEntry: &pb.HealthReportEntry{
 			Report: &pb.HealthReport{
 				Source: source,
 				Alerts: []*pb.HealthProbeAlert{{
@@ -470,7 +714,7 @@ func (c *grpcClient) InsertHealthReportOverride(ctx context.Context, machineID s
 					Classifications: []string{classificationSuppressExternalAlerting},
 				}},
 			},
-			Mode: pb.OverrideMode_Replace,
+			Mode: pb.HealthReportApplyMode_Replace,
 		},
 	}
 
@@ -485,7 +729,7 @@ func (c *grpcClient) RemoveHealthReportOverride(ctx context.Context, machineID s
 	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer cancel()
 
-	req := &pb.RemoveHealthReportOverrideRequest{
+	req := &pb.RemoveMachineHealthReportRequest{
 		MachineId: &pb.MachineId{Id: machineID},
 		Source:    source,
 	}
@@ -493,6 +737,239 @@ func (c *grpcClient) RemoveHealthReportOverride(ctx context.Context, machineID s
 	_, err := c.gclient.RemoveHealthReportOverride(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to remove health report override for machine %s: %w", machineID, err)
+	}
+	return nil
+}
+
+// InsertHostUpdateInProgressHealthOverride writes the (id,
+// classifications, source) triple Core's `trigger_dpu_reprovisioning`
+// validates against. The Replace mode means a stale override from an
+// aborted earlier run is overwritten cleanly rather than accumulating
+// duplicate alerts.
+func (c *grpcClient) InsertHostUpdateInProgressHealthOverride(
+	ctx context.Context,
+	machineID string,
+	message string,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.InsertMachineHealthReportRequest{
+		MachineId: &pb.MachineId{Id: machineID},
+		HealthReportEntry: &pb.HealthReportEntry{
+			Report: &pb.HealthReport{
+				Source: healthReportSourceHostUpdate,
+				Alerts: []*pb.HealthProbeAlert{{
+					Id:      healthProbeIDHostUpdateInProgress,
+					Message: message,
+					Classifications: []string{
+						classificationPreventAllocations,
+						classificationSuppressExternalAlerting,
+					},
+				}},
+			},
+			Mode: pb.HealthReportApplyMode_Replace,
+		},
+	}
+
+	if _, err := c.gclient.InsertMachineHealthReport(ctx, req); err != nil {
+		return fmt.Errorf(
+			"failed to insert HostUpdateInProgress health override for machine %s: %w",
+			machineID, err,
+		)
+	}
+	return nil
+}
+
+// RemoveHostUpdateInProgressHealthOverride is the cleanup counterpart of
+// InsertHostUpdateInProgressHealthOverride. The remove RPC tolerates
+// removing an override that does not exist — that is the desired
+// idempotent behavior for the deferred cleanup path.
+func (c *grpcClient) RemoveHostUpdateInProgressHealthOverride(
+	ctx context.Context,
+	machineID string,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.RemoveMachineHealthReportRequest{
+		MachineId: &pb.MachineId{Id: machineID},
+		Source:    healthReportSourceHostUpdate,
+	}
+
+	if _, err := c.gclient.RemoveMachineHealthReport(ctx, req); err != nil {
+		return fmt.Errorf(
+			"failed to remove HostUpdateInProgress health override for machine %s: %w",
+			machineID, err,
+		)
+	}
+	return nil
+}
+
+// TriggerDpuReprovisioning forwards the call to Core's matching RPC with
+// fixed Mode=Set / Initiator=AdminCli. AdminCli (rather than Automatic)
+// is the right initiator because this method is on the Flow gRPC client
+// path used by externally-driven tenant flows; the reconciler in Core
+// uses Automatic for its own internal triggers.
+func (c *grpcClient) TriggerDpuReprovisioning(
+	ctx context.Context,
+	machineID string,
+	updateFirmware bool,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.DpuReprovisioningRequest{
+		MachineId:      &pb.MachineId{Id: machineID},
+		Mode:           pb.DpuReprovisioningRequest_Set,
+		Initiator:      pb.UpdateInitiator_AdminCli,
+		UpdateFirmware: updateFirmware,
+	}
+
+	if _, err := c.gclient.TriggerDpuReprovisioning(ctx, req); err != nil {
+		return fmt.Errorf(
+			"failed to trigger DPU reprovisioning for machine %s: %w",
+			machineID, err,
+		)
+	}
+	return nil
+}
+
+// IsDpuReprovisioningPendingForHost calls Core's ListDpuWaitingForReprovisioning
+// and matches by `id` (the DPU machine id). A pending entry's
+// `started_at` may or may not be set depending on whether the host
+// power-cycle has already begun, so callers should treat any presence
+// in the list as "not done yet".
+//
+// This walks the full list because Core does not (yet) expose a
+// per-host filter on the RPC; the list is short in practice (DPUs
+// pending across the whole site), but if it ever grows we should
+// extend the proto with a host filter rather than trim here.
+func (c *grpcClient) IsDpuReprovisioningPendingForHost(
+	ctx context.Context,
+	hostMachineID string,
+) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	dpuIDs, err := c.findAssociatedDpuMachineIdsLocked(ctx, hostMachineID)
+	if err != nil {
+		return false, err
+	}
+	if len(dpuIDs) == 0 {
+		return false, nil
+	}
+	dpuSet := make(map[string]struct{}, len(dpuIDs))
+	for _, id := range dpuIDs {
+		dpuSet[id] = struct{}{}
+	}
+
+	resp, err := c.gclient.ListDpuWaitingForReprovisioning(ctx, &pb.DpuReprovisioningListRequest{})
+	if err != nil {
+		return false, fmt.Errorf("failed to list DPUs waiting for reprovisioning: %w", err)
+	}
+	for _, item := range resp.GetDpus() {
+		if _, ok := dpuSet[item.GetId().GetId()]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// FindAssociatedDpuMachineIds wraps findAssociatedDpuMachineIdsLocked
+// with the per-call timeout. The unwrapped helper is reused by
+// IsDpuReprovisioningPendingForHost so we don't double-apply the
+// timeout when chaining the two RPCs.
+func (c *grpcClient) FindAssociatedDpuMachineIds(
+	ctx context.Context,
+	hostMachineID string,
+) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	return c.findAssociatedDpuMachineIdsLocked(ctx, hostMachineID)
+}
+
+func (c *grpcClient) findAssociatedDpuMachineIdsLocked(
+	ctx context.Context,
+	hostMachineID string,
+) ([]string, error) {
+	if hostMachineID == "" {
+		return nil, fmt.Errorf("host machine id is required")
+	}
+
+	resp, err := c.gclient.FindMachinesByIds(ctx, &pb.MachinesByIdsRequest{
+		MachineIds: []*pb.MachineId{{Id: hostMachineID}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to find machine %s: %w", hostMachineID, err)
+	}
+	if len(resp.GetMachines()) == 0 {
+		return nil, fmt.Errorf("machine %s not found", hostMachineID)
+	}
+
+	dpus := resp.GetMachines()[0].GetAssociatedDpuMachineIds()
+	out := make([]string, 0, len(dpus))
+	for _, id := range dpus {
+		if v := id.GetId(); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// FindInstanceIdByMachineId returns the instance id currently attached
+// to a host machine. An empty result is the canonical "no instance
+// attached" signal — callers must check before passing the result to
+// InvokeInstancePower because Core rejects an empty instance id.
+func (c *grpcClient) FindInstanceIdByMachineId(
+	ctx context.Context,
+	machineID string,
+) (string, error) {
+	if machineID == "" {
+		return "", fmt.Errorf("machine id is required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.FindInstanceByMachineID(ctx, &pb.MachineId{Id: machineID})
+	if err != nil {
+		return "", fmt.Errorf("failed to find instance for machine %s: %w", machineID, err)
+	}
+	for _, inst := range resp.GetInstances() {
+		if id := inst.GetId().GetValue(); id != "" {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+// InvokeInstancePower triggers a POWER_RESET on a tenant instance with
+// optional `apply_updates_on_reboot`. POWER_RESET is the only operation
+// the proto exposes today; if more are added (e.g. a graceful flavor)
+// we will need to extend the wrapper.
+func (c *grpcClient) InvokeInstancePower(
+	ctx context.Context,
+	instanceID string,
+	applyUpdates bool,
+) error {
+	if instanceID == "" {
+		return fmt.Errorf("instance id is required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.InstancePowerRequest{
+		InstanceId:           &pb.InstanceId{Value: instanceID},
+		Operation:            pb.InstancePowerRequest_POWER_RESET,
+		ApplyUpdatesOnReboot: applyUpdates,
+	}
+
+	if _, err := c.gclient.InvokeInstancePower(ctx, req); err != nil {
+		return fmt.Errorf(
+			"failed to invoke instance power on %s (apply_updates=%t): %w",
+			instanceID, applyUpdates, err,
+		)
 	}
 	return nil
 }
@@ -555,6 +1032,82 @@ func (c *grpcClient) GetAllExpectedPowerShelvesLinked(ctx context.Context) ([]Li
 	var results []LinkedExpectedPowerShelf
 	for _, leps := range resp.GetExpectedPowerShelves() {
 		results = append(results, linkedExpectedPowerShelfFromPb(leps))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedRackDetails(ctx context.Context) ([]ExpectedRackDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedRacks(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected racks: %w", err)
+	}
+	rows := resp.GetExpectedRacks()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedRackDetail, 0, len(rows))
+	for _, er := range rows {
+		results = append(results, expectedRackDetailFromPb(er))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedMachineDetails(ctx context.Context) ([]ExpectedMachineDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedMachines(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected machines: %w", err)
+	}
+	rows := resp.GetExpectedMachines()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedMachineDetail, 0, len(rows))
+	for _, em := range rows {
+		results = append(results, expectedMachineDetailFromPb(em))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedSwitchDetails(ctx context.Context) ([]ExpectedSwitchDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedSwitches(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected switches: %w", err)
+	}
+	rows := resp.GetExpectedSwitches()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedSwitchDetail, 0, len(rows))
+	for _, es := range rows {
+		results = append(results, expectedSwitchDetailFromPb(es))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedPowerShelfDetails(ctx context.Context) ([]ExpectedPowerShelfDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedPowerShelves(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected power shelves: %w", err)
+	}
+	rows := resp.GetExpectedPowerShelves()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedPowerShelfDetail, 0, len(rows))
+	for _, eps := range rows {
+		results = append(results, expectedPowerShelfDetailFromPb(eps))
 	}
 	return results, nil
 }
@@ -631,5 +1184,85 @@ func (c *grpcClient) AddExpectedSwitchInfo(info ExpectedSwitchInfo) {
 }
 
 func (c *grpcClient) SetLeakingMachineIds(ids []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetLeakingSwitchIds(ids []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetSwitchRackID(switchID, rackID string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetPowerShelfRackID(shelfID, rackID string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetSwitchControllerState(switchID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetSwitchNvosIP(switchID, ip string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetPowerShelfControllerState(shelfID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetRackHostMachineIDs(rackID string, machineIDs []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedRackDetail(detail ExpectedRackDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedMachineDetail(detail ExpectedMachineDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedSwitchDetail(detail ExpectedSwitchDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetHostDpuMachineIds(hostMachineID string, dpuIDs []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetHostInstanceID(hostMachineID string, instanceID string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetDpuReprovisioningPending(hostMachineID string, pending bool) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetInsertHostUpdateOverrideError(err error) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetTriggerDpuReprovisioningError(err error) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetInvokeInstancePowerError(err error) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) DpuReprovisioningTriggers() []DpuReprovisioningCall {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) InstancePowerCalls() []InstancePowerCall {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) HostUpdateOverridesActive() map[string]string {
 	panic("Not a unit test")
 }

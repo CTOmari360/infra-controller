@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package dao
 
@@ -24,16 +10,30 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/deviceinfo"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/location"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/utils"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/bmc"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/component"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/rack"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/utils"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/bmc"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
+
+func TestComponentFrom_LeakStatus(t *testing.T) {
+	daoComponent := model.Component{
+		ID:         uuid.New(),
+		Type:       devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
+		LeakStatus: types.LeakStatusDetected,
+	}
+	assert.Equal(t, types.LeakStatusDetected, ComponentFrom(daoComponent).LeakStatus)
+
+	// The resting value round-trips as LeakStatusUnknown.
+	daoComponent.LeakStatus = types.LeakStatusUnknown
+	assert.Equal(t, types.LeakStatusUnknown, ComponentFrom(daoComponent).LeakStatus)
+}
 
 func TestBMCConversion(t *testing.T) {
 	testCases := map[string]struct {

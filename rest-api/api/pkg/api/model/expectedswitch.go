@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -26,8 +12,8 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // APIExpectedSwitchCreateRequest is the data structure to capture request to create a new ExpectedSwitch
@@ -58,8 +44,6 @@ type APIExpectedSwitchCreateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected switch
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected switch
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -101,8 +85,6 @@ func (escr *APIExpectedSwitchCreateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&escr.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&escr.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -144,8 +126,6 @@ type APIExpectedSwitchUpdateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected switch
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected switch
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -201,8 +181,6 @@ func (esur *APIExpectedSwitchUpdateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&esur.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&esur.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -240,8 +218,6 @@ type APIExpectedSwitch struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected switch
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected switch
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -269,7 +245,6 @@ func NewAPIExpectedSwitch(dbModel *cdbm.ExpectedSwitch) *APIExpectedSwitch {
 		Manufacturer:       dbModel.Manufacturer,
 		Model:              dbModel.Model,
 		Description:        dbModel.Description,
-		FirmwareVersion:    dbModel.FirmwareVersion,
 		SlotID:             dbModel.SlotID,
 		TrayIdx:            dbModel.TrayIdx,
 		HostID:             dbModel.HostID,

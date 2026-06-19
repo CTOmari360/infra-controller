@@ -40,6 +40,7 @@ use crate::errors::{ModelError, ModelResult};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
+use crate::machine_boot_interface::MachineBootInterface;
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
@@ -117,6 +118,10 @@ pub struct EndpointExplorationReport {
     // Merged from multiple chassis entries
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision_id: Option<i32>,
+    /// Transient remediation error detected during an otherwise successful exploration.
+    /// Not persisted; used to trigger Site Explorer auto-remediation in the same run.
+    #[serde(skip, default)]
+    pub remediation_error: Option<EndpointExplorationError>,
 }
 
 impl EndpointExplorationReport {
@@ -152,6 +157,34 @@ impl EndpointExplorationReport {
             .dedup()
             .collect()
     }
+
+    /// Finds the Redfish interface id of the host ethernet interface whose MAC
+    /// matches `mac`, if any. An interface that reports an empty id is treated
+    /// as having none, so callers never capture an empty string as the id (which
+    /// would otherwise clobber a previously stored, valid one).
+    ///
+    /// Used to capture the boot interface's [stable] Redfish interface id
+    /// alongside its MAC, giving setup calls a second, [stable] handle to target
+    /// in addition to the MAC.
+    pub fn find_interface_id_for_mac(&self, mac: MacAddress) -> Option<&str> {
+        self.systems
+            .iter()
+            .flat_map(|s| s.ethernet_interfaces.iter())
+            .find(|e| e.mac_address == Some(mac))
+            .and_then(|e| e.id.as_deref().filter(|id| !id.is_empty()))
+    }
+
+    /// Yields a [`MachineBootInterface`] for every host ethernet interface that
+    /// reports both a MAC and a non-empty Redfish interface id -- for any NIC
+    /// type (integrated NICs, SuperNICs, DPUs in NIC mode, DPU host-PFs).
+    /// Interfaces missing either half are skipped (via
+    /// [`MachineBootInterface::from_parts`]).
+    pub fn complete_boot_interfaces(&self) -> impl Iterator<Item = MachineBootInterface> + '_ {
+        self.systems
+            .iter()
+            .flat_map(|s| s.ethernet_interfaces.iter())
+            .filter_map(|e| MachineBootInterface::from_parts(e.mac_address, e.id.clone()))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +217,10 @@ pub struct ExploredEndpoint {
     pub pause_remediation: bool,
     /// The MAC address of the boot interface (primary interface) for this host endpoint
     pub boot_interface_mac: Option<MacAddress>,
+    /// The vendor-native Redfish interface id of the boot interface, captured
+    /// alongside `boot_interface_mac`. Combined with the MAC via
+    /// [`ExploredEndpoint::boot_interface`] to form a [`MachineBootInterface`].
+    pub boot_interface_id: Option<String>,
 }
 
 impl Display for ExploredEndpoint {
@@ -193,6 +230,16 @@ impl Display for ExploredEndpoint {
 }
 
 impl ExploredEndpoint {
+    /// Returns the fully-populated boot interface (MAC + Redfish interface id)
+    /// for this endpoint, or `None` if either part is missing.
+    ///
+    /// `None` means we have no complete pair yet -- e.g. the endpoint predates
+    /// interface-id capture, or has only ever been reported without a resolvable
+    /// interface id.
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        MachineBootInterface::from_parts(self.boot_interface_mac, self.boot_interface_id.clone())
+    }
+
     /// find_version will locate a version number within an ExploredEndpoint
     pub fn find_version(
         &self,
@@ -353,9 +400,30 @@ pub enum PreingestionState {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
     },
+    /// One-shot BMC reset run immediately after `Initial` for every endpoint,
+    /// so a freshly-booted BMC report is what pairing/ingestion reads. Notably
+    /// refreshes GB200 host BMCs that intermittently drop a DPU from their
+    /// PCIe inventory.
+    InitialBMCReset {
+        phase: InitialBmcResetPhase,
+    },
+    /// Configure site NTP servers on the BMC before checking whether its clock
+    /// is synchronized. `set_at` records a successful Redfish update so the
+    /// state machine can wait for the setting to take effect before checking.
+    SetNtpServers {
+        set_at: Option<DateTime<Utc>>,
+        #[serde(default)]
+        attempts: u32,
+    },
     TimeSyncReset {
         phase: TimeSyncResetPhase,
         last_time: DateTime<Utc>,
+        /// How many full reset cycles have already been attempted for this
+        /// endpoint. Used to retry a transient clock failure a bounded number
+        /// of times before giving up. Defaults to 0 so states serialized
+        /// before this field existed still deserialize.
+        #[serde(default)]
+        attempt: u32,
     },
     UpgradeFirmwareWait {
         task_id: String,
@@ -399,6 +467,21 @@ pub enum InitialResetPhase {
     Start,
     BMCWasReset,
     WaitHostBoot,
+}
+
+/// Phases of the one-shot `InitialBMCReset` state. `Start { attempts }` issues
+/// the BMC reset; if the BMC is reachable but the reset errors, it retries up
+/// to a bound and then proceeds without the reset rather than blocking
+/// ingestion. `WaitForBmc` polls until the BMC comes back; an unreachable BMC
+/// keeps waiting (it is never a reason to move on). Once it returns, a fresh
+/// exploration report is requested and `WaitForExplorerRefresh` waits for it so
+/// the relocated checks (and downstream pairing) read the post-reset inventory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InitialBmcResetPhase {
+    Start { attempts: u32 },
+    WaitForBmc,
+    WaitForExplorerRefresh,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -492,7 +575,7 @@ impl ExploredDpu {
 
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.bmc_ip.to_string()),
+            ip: Some(self.bmc_ip),
             mac: self
                 .report
                 .managers
@@ -582,7 +665,7 @@ pub struct ExploredManagedHost {
 impl ExploredManagedHost {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.host_bmc_ip.to_string()),
+            ip: Some(self.host_bmc_ip),
             ..Default::default()
         }
     }
@@ -602,7 +685,7 @@ pub struct ExploredManagedSwitch {
 impl ExploredManagedSwitch {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.bmc_ip.to_string()),
+            ip: Some(self.bmc_ip),
             ..Default::default()
         }
     }
@@ -675,6 +758,7 @@ impl EndpointExplorationReport {
             compute_tray_index: None,
             topology_id: None,
             revision_id: None,
+            remediation_error: None,
         }
     }
 
@@ -694,7 +778,7 @@ impl EndpointExplorationReport {
     /// Return `true` if the explored endpoint is a PowerShelf.
     /// This checks if the chassis ID is /Chassis/powershelf, or,
     /// if that fails, checks to see if /Chassis/chassis has
-    /// a manufacturer containing "lite-on".
+    /// a manufacturer containing "lite-on" or "delta".
     ///
     /// TODO(chet): These are obviously workarounds for now while
     /// we work with vendors to update their BMC firmware.
@@ -702,9 +786,10 @@ impl EndpointExplorationReport {
         self.chassis.iter().any(|c| {
             c.id.to_lowercase().contains("powershelf")
                 || (c.id == "chassis"
-                    && c.manufacturer
-                        .as_ref()
-                        .is_some_and(|m| m.to_lowercase().contains("lite-on")))
+                    && c.manufacturer.as_ref().is_some_and(|m| {
+                        let m = m.to_lowercase();
+                        m.contains("lite-on") || m.contains("delta")
+                    }))
         })
     }
 
@@ -1226,43 +1311,49 @@ pub struct EthernetInterface {
 pub struct UefiDevicePath(String);
 
 lazy_static! {
-    static ref UEFI_DEVICE_PATH_REGEX: Regex =
-        Regex::new(r"PciRoot\((.*?)\)\/Pci\((.*?)\)\/Pci\((.*?)\)").expect("must always compile");
+    static ref PCI_ROOT_REGEX: Regex =
+        Regex::new(r"^PciRoot\(([^)]*)\)").expect("must always compile");
+    static ref PCI_NODE_REGEX: Regex = Regex::new(r"/Pci\(([^)]*)\)").expect("must always compile");
 }
 
 impl FromStr for UefiDevicePath {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Uefi string is received as PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0)/MAC(A088C208545C,0x1)
-        // Need to convert it as 8.2.10.0.0
-        // Some output does not contain MAC part. Also it is useless for us.
+        // UEFI 2.10 §10.3.4: PciRoot followed by one or more Pci nodes,
+        // e.g. PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0) (NIC behind a bridge) or
+        //      PciRoot(0x7)/Pci(0x0,0x0)            (NIC on a root port).
+        // Trailing /MAC(...) is optional and discarded.
 
         let st = s.rsplit_once("/MAC").map(|x| x.0).unwrap_or(s);
 
-        let captures = UEFI_DEVICE_PATH_REGEX
-            .captures(st)
-            .ok_or_else(|| format!("Could not match regex in PCI Device Path {s}."))?;
-
         let mut pci = vec![];
-
-        for (i, capture) in captures.iter().enumerate() {
-            if i == 0 {
-                continue;
+        let mut push_group = |group: &str| -> Result<(), String> {
+            for hex in group.split(',') {
+                let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
+                    .map_err(|e| {
+                        format!("Can't convert pci address to int {hex}, error: {e} for pci: {s}")
+                    })?;
+                pci.push(hex_int.to_string());
             }
+            Ok(())
+        };
 
-            if let Some(capture) = capture {
-                for hex in capture.as_str().split(',') {
-                    let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
-                        .map_err(|e| {
-                            format!(
-                                "Can't convert pci address to int {hex}, error: {e} for pci: {s}"
-                            )
-                        })?;
-                    pci.push(hex_int.to_string());
-                }
+        let root = PCI_ROOT_REGEX
+            .captures(st)
+            .and_then(|c| c.get(1))
+            .ok_or_else(|| format!("Could not match regex in PCI Device Path {s}."))?;
+        push_group(root.as_str())?;
+
+        let mut had_pci = false;
+        for cap in PCI_NODE_REGEX.captures_iter(st) {
+            if let Some(g) = cap.get(1) {
+                had_pci = true;
+                push_group(g.as_str())?;
             }
-            // Should we return error if capture is not proper??
+        }
+        if !had_pci {
+            return Err(format!("Could not match regex in PCI Device Path {s}."));
         }
 
         Ok(UefiDevicePath(pci.join(".")))
@@ -1470,6 +1561,9 @@ pub fn is_bluefield_model(model: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, scenarios};
+
     use super::*;
     use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
@@ -1525,32 +1619,36 @@ mod tests {
             last_redfish_powercycle: None,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
             pause_ingestion_and_poweron: false,
         }
     }
 
+    /// `find_version` locates the firmware version matching a component regex,
+    /// yielding the version string when an inventory matches and absent otherwise.
     #[test]
-    fn test_find_version_single_match() {
+    fn test_find_version() {
         let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware", Some("1.2.3")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
+        scenarios!(
+            // Build an endpoint from the inventories, then look up the BMC
+            // version; absent -> error so the no-match row reads as a failure.
+            run = |inventories| {
+                create_test_endpoint(inventories)
+                    .find_version(&fw_info, FirmwareComponentType::Bmc)
+                    .cloned()
+                    .ok_or(())
+            };
+            "single match" {
+                vec![("BMC_Firmware", Some("1.2.3")), ("DPU_UEFI", Some("4.5.6"))] => Yields("1.2.3".to_string()),
+            }
 
-        let result = endpoint.find_version(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(result, Some(&"1.2.3".to_string()));
-    }
-
-    #[test]
-    fn test_find_version_no_match() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("DPU_UEFI", Some("4.5.6")),
-            ("Other_Component", Some("7.8.9")),
-        ]);
-
-        let result = endpoint.find_version(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(result, None);
+            "no match" {
+                vec![
+                    ("DPU_UEFI", Some("4.5.6")),
+                    ("Other_Component", Some("7.8.9")),
+                ] => Fails,
+            }
+        );
     }
 
     #[test]
@@ -1784,6 +1882,7 @@ mod tests {
             compute_tray_index: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1853,6 +1952,7 @@ mod tests {
             compute_tray_index: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         };
         report
             .generate_machine_id(false)
@@ -1883,15 +1983,45 @@ mod tests {
         assert_eq!(deserialized.machine_id.unwrap(), machine_id);
     }
 
+    /// `UefiDevicePath::from_str` parses a UEFI PciRoot/Pci device path into a
+    /// dotted decimal address, requiring at least one Pci node after PciRoot.
     #[test]
     fn test_uefi_device_path() {
-        let path = "PciRoot(0x2)/Pci(0x1,0x0)/Pci(0x0,0x1)";
-        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
-        assert_eq!(converted.0, "2.1.0.0.1");
-
-        let path = "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)";
-        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
-        assert_eq!(converted.0, "17.1.0.0.10");
+        check_cases(
+            [
+                Case {
+                    scenario: "two Pci nodes",
+                    input: "PciRoot(0x2)/Pci(0x1,0x0)/Pci(0x0,0x1)",
+                    expect: Yields("2.1.0.0.1".to_string()),
+                },
+                Case {
+                    scenario: "trailing MAC discarded",
+                    input: "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)",
+                    expect: Yields("17.1.0.0.10".to_string()),
+                },
+                Case {
+                    // NIC attached directly to a root port (no PCI-PCI bridge upstream).
+                    scenario: "single Pci node on a root port",
+                    input: "PciRoot(0x7)/Pci(0x0,0x0)/MAC(525400A8282F,0x1)",
+                    expect: Yields("7.0.0".to_string()),
+                },
+                Case {
+                    // Three Pci nodes (NIC behind two upstream bridges/switches).
+                    scenario: "three Pci nodes",
+                    input: "PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)",
+                    expect: Yields("0.1.0.0.0.0.0".to_string()),
+                },
+                Case {
+                    // PciRoot without any Pci node should fail.
+                    scenario: "PciRoot without any Pci node",
+                    input: "PciRoot(0x7)/MAC(525400A8282F,0x1)",
+                    expect: Fails,
+                },
+            ],
+            // The error type is String, but the failing row only asserts that it
+            // errors, so discard it; yield the dotted address on success.
+            |path| UefiDevicePath::from_str(path).map(|u| u.0).map_err(drop),
+        );
     }
 
     #[test]
@@ -1979,12 +2109,153 @@ mod tests {
         assert!(report.is_power_shelf());
     }
 
+    /// `find_interface_id_for_mac` returns the Redfish interface id of the host
+    /// ethernet interface whose MAC matches, treating a missing or empty id (and
+    /// an unknown MAC) as absent so a last-known-good capture is never clobbered.
+    #[test]
+    fn find_interface_id_for_mac() {
+        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
+        let other = MacAddress::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+
+        // Report with two interfaces: `other` then `mac`, both with ids.
+        let two_iface_report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.1".to_string()),
+                        mac_address: Some(other),
+                        ..Default::default()
+                    },
+                    EthernetInterface {
+                        id: Some("NIC.Slot.7-1-1".to_string()),
+                        mac_address: Some(mac),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // Single interface carrying `mac` but no usable id.
+        let single_iface_report = |id: Option<String>| EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![EthernetInterface {
+                    id,
+                    mac_address: Some(mac),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        scenarios!(
+            run = |(report, mac)| {
+                report
+                    .find_interface_id_for_mac(mac)
+                    .map(str::to_string)
+                    .ok_or(())
+            };
+            "matching MAC yields its interface id" {
+                (two_iface_report.clone(), mac) => Yields("NIC.Slot.7-1-1".to_string()),
+            }
+
+            "unknown MAC -> None (keeps last-known-good record)" {
+                (two_iface_report, MacAddress::new([0, 0, 0, 0, 0, 0])) => Fails,
+            }
+
+            "MAC present but no interface id -> no complete pair" {
+                (single_iface_report(None), mac) => Fails,
+            }
+
+            "empty id treated as absent (don't clobber stored boot interface)" {
+                (single_iface_report(Some(String::new())), mac) => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn complete_boot_interfaces_yields_every_nic_regardless_of_type() {
+        let dpu_mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
+        let integrated_mac = MacAddress::new([0xD4, 0x04, 0xE6, 0x84, 0x13, 0x98]);
+        let id_less_mac = MacAddress::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+        let empty_id_mac = MacAddress::new([0x22, 0x33, 0x44, 0x55, 0x66, 0x77]);
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![
+                    // A DPU host-PF -- the only kind the DPU-only capture reached...
+                    EthernetInterface {
+                        id: Some("NIC.Slot.7-1-1".to_string()),
+                        mac_address: Some(dpu_mac),
+                        ..Default::default()
+                    },
+                    // ...and a non-DPU integrated NIC, which is now yielded too.
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.1-1-1".to_string()),
+                        mac_address: Some(integrated_mac),
+                        ..Default::default()
+                    },
+                    // No id -> can't form a pair, skipped.
+                    EthernetInterface {
+                        id: None,
+                        mac_address: Some(id_less_mac),
+                        ..Default::default()
+                    },
+                    // No MAC -> nothing to key on, skipped.
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.2-1-1".to_string()),
+                        mac_address: None,
+                        ..Default::default()
+                    },
+                    // Empty id -> not a usable id, skipped (don't clobber last-known-good).
+                    EthernetInterface {
+                        id: Some(String::new()),
+                        mac_address: Some(empty_id_mac),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let boot_interfaces: Vec<MachineBootInterface> =
+            report.complete_boot_interfaces().collect();
+        assert_eq!(
+            boot_interfaces,
+            vec![
+                MachineBootInterface {
+                    mac_address: dpu_mac,
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                },
+                MachineBootInterface {
+                    mac_address: integrated_mac,
+                    interface_id: "NIC.Embedded.1-1-1".to_string(),
+                },
+            ],
+            "complete_boot_interfaces should yield a MachineBootInterface for every NIC with both a MAC and a non-empty id -- DPU or not -- and skip the rest",
+        );
+    }
+
     #[test]
     fn is_power_shelf_with_chassis_id_and_liteon_manufacturer() {
         let report = EndpointExplorationReport {
             chassis: vec![Chassis {
                 id: "chassis".to_string(),
                 manufacturer: Some("LITE-ON TECHNOLOGY CORP.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_chassis_id_and_delta_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("DELTA".to_string()),
                 ..Default::default()
             }],
             ..Default::default()
@@ -2018,78 +2289,73 @@ mod tests {
         assert!(!report.is_power_shelf());
     }
 
+    /// A `ComputerSystem` deserializes regardless of the `BaseMac` field: a valid
+    /// value parses through, while an invalid, null, or missing one becomes `None`.
+    /// Each row projects to the resulting `base_mac`.
     #[test]
-    fn test_computer_system_with_invalid_base_mac_deserializes_as_none() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "BaseMac": "pe:",
-            "PowerState": "On"
-        });
+    fn test_computer_system_base_mac_deserialization() {
+        scenarios!(
+            // Deserialize and project to base_mac; every row is expected to
+            // deserialize, so the (non-PartialEq) serde error is discarded.
+            run = |json| {
+                serde_json::from_value::<ComputerSystem>(json)
+                    .map(|system| system.base_mac)
+                    .map_err(drop)
+            };
+            "invalid BaseMac -> None" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "BaseMac": "pe:",
+                    "PowerState": "On"
+                }) => Yields(None),
+            }
 
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize despite invalid BaseMac");
-        assert_eq!(system.base_mac, None);
-    }
+            "valid BaseMac parses through" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "BaseMac": "A088C208804C",
+                    "PowerState": "On"
+                }) => Yields(Some("A088C208804C".parse().unwrap())),
+            }
 
-    #[test]
-    fn test_computer_system_with_valid_base_mac_deserializes_correctly() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "BaseMac": "A088C208804C",
-            "PowerState": "On"
-        });
+            "null BaseMac -> None" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "BaseMac": null,
+                    "PowerState": "On"
+                }) => Yields(None),
+            }
 
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize valid BaseMac");
-        assert_eq!(system.base_mac, Some("A088C208804C".parse().unwrap()));
-    }
-
-    #[test]
-    fn test_computer_system_with_null_base_mac_deserializes_as_none() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "BaseMac": null,
-            "PowerState": "On"
-        });
-
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize null BaseMac");
-        assert_eq!(system.base_mac, None);
-    }
-
-    #[test]
-    fn test_computer_system_with_missing_base_mac_deserializes_as_none() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "PowerState": "On"
-        });
-
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize missing BaseMac");
-        assert_eq!(system.base_mac, None);
+            "missing BaseMac -> None" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "PowerState": "On"
+                }) => Yields(None),
+            }
+        );
     }
 }

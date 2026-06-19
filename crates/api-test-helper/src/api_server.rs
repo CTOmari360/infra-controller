@@ -17,8 +17,8 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use carbide_secrets::CredentialConfig;
 use carbide_utils::HostPortPair;
-use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 
@@ -249,7 +249,7 @@ pub async fn start(
         autoupdate = true
         host_enable_autoupdate = []
         host_disable_autoupdate = []
-        run_interval = "5s"
+        run_interval = "1s"
         max_uploads = 4
         concurrency_limit = 16
         firmware_directory = "{firmware_directory_str}"
@@ -295,6 +295,8 @@ pub async fn start(
         None,
         credential_config,
         true,
+        // The in-process test server does not serve the admin web UI.
+        None,
         cancel_token,
         ready_channel,
     )

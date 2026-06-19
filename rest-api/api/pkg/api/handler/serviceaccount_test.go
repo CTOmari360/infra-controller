@@ -1,35 +1,21 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cauth "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -44,8 +30,6 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 	defer dbSession.Close()
 
 	common.TestSetupSchema(t, dbSession)
-
-	cfg := common.GetTestConfig()
 
 	org1 := "test-org"
 	user1 := common.TestBuildUser(t, dbSession, uuid.NewString(), org1, []string{authz.ProviderAdminRole, authz.TenantAdminRole})
@@ -88,13 +72,6 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg.JwtOriginConfig = cauth.NewJWTOriginConfig()
-
-			if test.serviceAccountEnabled {
-				// Add service account auth config
-				cfg.JwtOriginConfig.AddConfig(test.org, fmt.Sprintf("https://%s.com", test.org), fmt.Sprintf("https://%s.com", test.org), cauth.TokenOriginCustom, true, nil, nil)
-			}
-
 			// Setup echo server/context
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, "/service-account/current", nil)
@@ -108,9 +85,13 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 
 			ec.SetRequest(ec.Request().WithContext(ctx))
 
+			// Normally, the auth processor records the service-account flag on the request
+			// context based on the type of issuer/Origin/claimMappings, but in this test we
+			// set it manually for testing purposes.
+			cauth.SetIsServiceAccountInContext(ec, test.serviceAccountEnabled)
+
 			handler := GetCurrentServiceAccountHandler{
 				dbSession: dbSession,
-				cfg:       cfg,
 			}
 
 			err := handler.Handle(ec)
@@ -129,6 +110,35 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 			} else {
 				assert.Nil(t, sa.InfrastructureProviderID)
 				assert.Nil(t, sa.TenantID)
+			}
+
+			// For the org with no pre-existing Tenant Account (org1), the handler
+			// creates one and must record an initial Ready status detail so the
+			// account's status history is never empty.
+			if test.org == org1 {
+				ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
+				tnDAO := cdbm.NewTenantDAO(dbSession)
+				taDAO := cdbm.NewTenantAccountDAO(dbSession)
+				sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+				ips, ipErr := ipDAO.GetAllByOrg(ctx, nil, org1, nil)
+				require.NoError(t, ipErr)
+				require.Len(t, ips, 1)
+				tns, tnErr := tnDAO.GetAllByOrg(ctx, nil, org1, nil)
+				require.NoError(t, tnErr)
+				require.Len(t, tns, 1)
+
+				tas, _, taErr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+					InfrastructureProviderID: &ips[0].ID,
+					TenantIDs:                []uuid.UUID{tns[0].ID},
+				}, cdbp.PageInput{}, nil)
+				require.NoError(t, taErr)
+				require.Len(t, tas, 1)
+
+				sds, sdErr := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{tas[0].ID.String()}, common.RECENT_STATUS_DETAIL_COUNT)
+				require.NoError(t, sdErr)
+				require.NotEmpty(t, sds, "service-account-created tenant account should have a status detail")
+				assert.Equal(t, cdbm.TenantAccountStatusReady, sds[0].Status)
 			}
 		})
 	}

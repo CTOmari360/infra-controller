@@ -20,6 +20,8 @@
 //! 2. Wait for watcher callbacks (DPU ready, reboot required)
 //! 3. Handle cleanup on error/reprovisioning
 
+use std::net::IpAddr;
+
 use carbide_dpf::{DpfError, DpuPhase, dpu_node_cr_name};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
@@ -40,9 +42,8 @@ fn dpf_error(error: DpfError) -> StateHandlerError {
     ExternalServiceError::with_source("dpf", "", error.to_string(), "dpf_error", error).into()
 }
 
-// wrapper so we can get an error without copying it at every call site
-fn bmc_ip(machine: &Machine) -> Result<&str, StateHandlerError> {
-    machine.bmc_info.ip.as_deref().ok_or_else(|| {
+fn bmc_ip(machine: &Machine) -> Result<IpAddr, StateHandlerError> {
+    machine.bmc_info.ip.ok_or_else(|| {
         StateHandlerError::GenericError(eyre::eyre!("BMC IP is not set for machine {}", machine.id))
     })
 }
@@ -196,8 +197,8 @@ async fn create_and_register_dpudevices_and_dpunode(
             .unwrap_or_default();
         let device_info = carbide_dpf::DpuDeviceInfo {
             device_id: dpf_id(dpu)?,
-            dpu_bmc_ip: bmc_ip(dpu)?.to_string(),
-            host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
+            dpu_bmc_ip: bmc_ip(dpu)?,
+            host_bmc_ip: bmc_ip(&state.host_snapshot)?,
             serial_number: serial_number.to_string(),
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
@@ -215,7 +216,7 @@ async fn create_and_register_dpudevices_and_dpunode(
         .collect::<Result<_, _>>()?;
     let node_info = carbide_dpf::DpuNodeInfo {
         node_id: dpf_id(&state.host_snapshot)?,
-        host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
+        host_bmc_ip: bmc_ip(&state.host_snapshot)?,
         device_ids,
     };
     dpf_sdk
@@ -400,6 +401,7 @@ fn handle_dpf_device_ready(
 async fn handle_dpf_reprovisioning(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
@@ -419,7 +421,12 @@ async fn handle_dpf_reprovisioning(
             DpfState::WaitingForReady { phase_detail: None },
             state,
         )?;
-        return Ok(StateHandlerOutcome::transition(next));
+
+        let outcome = StateHandlerOutcome::transition(next);
+        let mut txn = ctx.services.db_pool.begin().await?;
+        db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &state.host_snapshot.id)
+            .await?;
+        return Ok(outcome.with_txn(txn));
     }
 
     tracing::info!("DPF initiate reprovision of DPU {}", dpu_snapshot.id);
@@ -481,7 +488,9 @@ pub async fn handle_dpf_state(
             handle_dpf_waiting_for_ready(state, dpu_snapshot, phase_detail, ctx, dpf_sdk).await
         }
         DpfState::DeviceReady => handle_dpf_device_ready(state),
-        DpfState::Reprovisioning => handle_dpf_reprovisioning(state, dpu_snapshot, dpf_sdk).await,
+        DpfState::Reprovisioning => {
+            handle_dpf_reprovisioning(state, dpu_snapshot, ctx, dpf_sdk).await
+        }
         DpfState::Unknown => {
             tracing::warn!(dpu_id = %dpu_snapshot.id, "unknown DPF state in DB, transitioning to provisioning");
             let next = set_one_dpu_dpf_state(state, &dpu_snapshot.id, DpfState::Provisioning)?;

@@ -1,61 +1,65 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package inventorysync
 
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nsmapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/psmapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/types"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"                       //nolint
-	nvswitchmanagerprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nvswitchmanager" //nolint
-	psmprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/psm"                         //nolint
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/types"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico" //nolint
 )
+
+// envExpectedSyncEnabled gates the expected-inventory mirror that runs at
+// the start of each inventory cycle (see expected_mirror*.go). Default is
+// "off": Flow keeps using its existing ingestion path until an operator
+// opts in. Accepted truthy values are anything strconv.ParseBool accepts
+// (1, t, T, true, True, TRUE, ...). An unset, empty, or unparseable value
+// resolves to disabled — the conservative default given the mirror writes
+// directly to the rack / component tables.
+const envExpectedSyncEnabled = "FLOW_EXPECTED_INVENTORY_SYNC_ENABLED"
 
 // Job implements scheduler.Job for the inventory sync task.
 type Job struct {
-	dbConf     *cdb.Config
-	nicoClient nicoapi.Client
-	psmClient  psmapi.Client
-	nsmClient  nsmapi.Client
-	pool       *cdb.Session
-	cmConfig   cmconfig.Config
+	dbConf              *cdb.Config
+	nicoClient          nicoapi.Client
+	pool                *cdb.Session
+	expectedSyncEnabled bool
+}
+
+func readExpectedSyncEnabled() bool {
+	raw := os.Getenv(envExpectedSyncEnabled)
+	if raw == "" {
+		return false
+	}
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Warn().
+			Str("env", envExpectedSyncEnabled).
+			Str("raw", raw).
+			Msg("Expected-inventory mirror toggle: env var value is not a boolean (use 1/0/true/false); treating as disabled")
+		return false
+	}
+	return enabled
 }
 
 // New constructs an inventory sync Job using clients sourced from the provider
 // registry. Returns nil, nil if inventory is disabled or the NICo provider
-// is not registered. PSM and NVSwitch Manager providers are optional; their
-// sync paths are skipped when the providers are absent.
+// is not registered.
 func New(
 	ctx context.Context,
 	dbConf *cdb.Config,
 	providers *providerapi.ProviderRegistry,
 	cfg config.Config,
-	cmConfig cmconfig.Config,
 ) (*Job, error) {
 	if cfg.DisableInventory {
 		log.Info().Msg("Inventory disabled by configuration")
@@ -76,34 +80,6 @@ func New(
 		return nil, nil
 	}
 
-	// PSM provider is optional: only needed when the powershelf component
-	// manager is configured to use the PSM implementation.
-	var psmClient psmapi.Client
-	psmProvider, err := providerapi.GetTyped[*psmprovider.Provider](
-		providers, psmprovider.ProviderName,
-	)
-	if err != nil {
-		log.Warn().
-			Err(err).
-			Msg("PSM provider not available; PSM powershelf sync skipped")
-	} else {
-		psmClient = psmProvider.Client()
-	}
-
-	// NVSwitch Manager provider is optional: only needed when the nvlswitch
-	// component manager is configured to use the nvswitchmanager implementation.
-	var nsmClient nsmapi.Client
-	nsmProvider, err := providerapi.GetTyped[*nvswitchmanagerprovider.Provider](
-		providers, nvswitchmanagerprovider.ProviderName,
-	)
-	if err != nil {
-		log.Warn().
-			Err(err).
-			Msg("NVSwitch Manager provider not available; NSM switch sync skipped")
-	} else {
-		nsmClient = nsmProvider.Client()
-	}
-
 	pool, err := cdb.NewSessionFromConfig(ctx, *dbConf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database pool: %w", err)
@@ -116,18 +92,22 @@ func New(
 	//  - Store abstraction: raw DB access (pool, dbConf) should be hidden behind
 	//    a store interface so jobs depend on a domain-level contract rather than
 	//    the database session directly.
-	//  - Provider encapsulation: the NICo, PSM, and NVSwitch Manager clients
-	//    are wired here by reaching into the component-manager provider registry.
-	//    This logic should move into the component manager so jobs receive
-	//    ready-to-use domain clients instead of low-level provider handles.
+	//  - Provider encapsulation: the NICo client is wired here by reaching into
+	//    the component-manager provider registry. This logic should move into
+	//    the component manager so jobs receive ready-to-use domain clients
+	//    instead of low-level provider handles.
+
+	expectedSyncEnabled := readExpectedSyncEnabled()
+	log.Info().
+		Bool("enabled", expectedSyncEnabled).
+		Str("env", envExpectedSyncEnabled).
+		Msg("Expected-inventory mirror: feature gate resolved at job construction")
 
 	return &Job{
-		dbConf:     dbConf,
-		nicoClient: nicoProvider.Client(),
-		psmClient:  psmClient,
-		nsmClient:  nsmClient,
-		pool:       pool,
-		cmConfig:   cmConfig,
+		dbConf:              dbConf,
+		nicoClient:          nicoProvider.Client(),
+		pool:                pool,
+		expectedSyncEnabled: expectedSyncEnabled,
 	}, nil
 }
 
@@ -140,10 +120,6 @@ func (j *Job) Name() string { return "inventory-sync" }
 // error is also logged rather than propagated. A failed iteration is not
 // fatal — the scheduler will simply retry on the next trigger fire.
 func (j *Job) Run(ctx context.Context, _ types.Event) error {
-	runInventoryOne(
-		ctx, j.pool,
-		j.nicoClient, j.psmClient, j.nsmClient,
-		j.cmConfig,
-	)
+	runInventoryOne(ctx, j.pool, j.nicoClient, j.expectedSyncEnabled)
 	return nil
 }

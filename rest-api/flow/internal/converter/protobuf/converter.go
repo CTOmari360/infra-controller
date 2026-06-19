@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package protobuf
 
@@ -27,21 +13,22 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	taskdef "github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/deviceinfo"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/location"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/bmc"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/component"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/nvldomain"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/rack"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	taskdef "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/bmc"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/nvldomain"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 var (
@@ -57,7 +44,7 @@ func init() {
 	componentTypeToMap = map[devicetypes.ComponentType]pb.ComponentType{
 		devicetypes.ComponentTypeUnknown:    pb.ComponentType_COMPONENT_TYPE_UNKNOWN,
 		devicetypes.ComponentTypeCompute:    pb.ComponentType_COMPONENT_TYPE_COMPUTE,
-		devicetypes.ComponentTypeNVLSwitch:  pb.ComponentType_COMPONENT_TYPE_NVLSWITCH,
+		devicetypes.ComponentTypeNVSwitch:   pb.ComponentType_COMPONENT_TYPE_NVSWITCH,
 		devicetypes.ComponentTypePowerShelf: pb.ComponentType_COMPONENT_TYPE_POWERSHELF,
 		devicetypes.ComponentTypeToRSwitch:  pb.ComponentType_COMPONENT_TYPE_TORSWITCH,
 		devicetypes.ComponentTypeUMS:        pb.ComponentType_COMPONENT_TYPE_UMS,
@@ -480,6 +467,7 @@ func TaskTo(task *taskdef.Task) *pb.Task {
 		ExecutionId:    task.ExecutionID,
 		Status:         TaskStatusTo(task.Status),
 		Message:        task.Message,
+		Report:         string(task.Report),
 		CreatedAt:      timestamppb.New(task.CreatedAt),
 		UpdatedAt:      timestamppb.New(task.UpdatedAt),
 	}
@@ -632,6 +620,74 @@ func ComponentTo(c *component.Component) *pb.Component {
 		ComponentId:     c.ComponentID,
 		RackId:          UUIDTo(c.RackID),
 		PowerState:      c.PowerState,
+		Status:          ComponentOperationStatusTo(c.Status),
+		LeakStatus:      LeakStatusTo(c.LeakStatus),
+	}
+}
+
+// LeakStatusTo converts the Flow-internal LeakStatus to its protobuf
+// counterpart. An unset or unrecognized value maps to LEAK_STATUS_UNKNOWN.
+func LeakStatusTo(s types.LeakStatus) pb.LeakStatus {
+	switch s {
+	case types.LeakStatusDetected:
+		return pb.LeakStatus_LEAK_STATUS_DETECTED
+	case types.LeakStatusNotDetected:
+		return pb.LeakStatus_LEAK_STATUS_NOT_DETECTED
+	default:
+		return pb.LeakStatus_LEAK_STATUS_UNKNOWN
+	}
+}
+
+// PhaseTo converts an internal Phase to a protobuf Phase.
+func PhaseTo(p types.Phase) pb.Phase {
+	switch p {
+	case types.PhaseInitializing:
+		return pb.Phase_PHASE_INITIALIZING
+	case types.PhaseReady:
+		return pb.Phase_PHASE_READY
+	case types.PhaseInUse:
+		return pb.Phase_PHASE_IN_USE
+	case types.PhaseError:
+		return pb.Phase_PHASE_ERROR
+	case types.PhaseDeleting:
+		return pb.Phase_PHASE_DELETING
+	default:
+		return pb.Phase_PHASE_UNKNOWN
+	}
+}
+
+// operationTypeFromTypesTo converts a Flow types.OperationType into its
+// protobuf counterpart. Distinct from OperationTypeToProto (which converts
+// from taskcommon.TaskType).
+func operationTypeFromTypesTo(op types.OperationType) pb.OperationType {
+	switch op {
+	case types.OperationTypePowerControl:
+		return pb.OperationType_OPERATION_TYPE_POWER_CONTROL
+	case types.OperationTypeFirmwareControl:
+		return pb.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL
+	default:
+		return pb.OperationType_OPERATION_TYPE_UNKNOWN
+	}
+}
+
+// ComponentOperationStatusTo converts the Flow-internal ComponentOperationStatus to the
+// protobuf form. Returns nil if the input is nil so callers transparently
+// surface "no status yet" rather than a default-valued message.
+func ComponentOperationStatusTo(s *types.ComponentOperationStatus) *pb.ComponentOperationStatus {
+	if s == nil {
+		return nil
+	}
+	var blocked []pb.OperationType
+	if len(s.BlockedOperations) > 0 {
+		blocked = make([]pb.OperationType, 0, len(s.BlockedOperations))
+		for _, op := range s.BlockedOperations {
+			blocked = append(blocked, operationTypeFromTypesTo(op))
+		}
+	}
+	return &pb.ComponentOperationStatus{
+		Phase:             PhaseTo(s.Phase),
+		Reason:            s.Reason,
+		BlockedOperations: blocked,
 	}
 }
 
@@ -1176,7 +1232,8 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation: operations.PowerOperationPowerOn,
+			Operation:              operations.PowerOperationPowerOn,
+			OverrideReadinessCheck: r.PowerOn.GetOverrideReadinessCheck(),
 		}, ts, r.PowerOn.GetQueueOptions(), r.PowerOn.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_PowerOff:
@@ -1193,8 +1250,9 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation: powerOp,
-			Forced:    r.PowerOff.GetForced(),
+			Operation:              powerOp,
+			Forced:                 r.PowerOff.GetForced(),
+			OverrideReadinessCheck: r.PowerOff.GetOverrideReadinessCheck(),
 		}, ts, r.PowerOff.GetQueueOptions(), r.PowerOff.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_PowerReset:
@@ -1211,8 +1269,9 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation: powerOp,
-			Forced:    r.PowerReset.GetForced(),
+			Operation:              powerOp,
+			Forced:                 r.PowerReset.GetForced(),
+			OverrideReadinessCheck: r.PowerReset.GetOverrideReadinessCheck(),
 		}, ts, r.PowerReset.GetQueueOptions(), r.PowerReset.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_BringUp:
@@ -1223,7 +1282,9 @@ func ScheduledOperationFrom(
 			)
 		}
 
-		return &operations.BringUpTaskInfo{}, ts, nil, r.BringUp.GetRuleId(), nil
+		return &operations.BringUpTaskInfo{
+			OverrideReadinessCheck: r.BringUp.GetOverrideReadinessCheck(),
+		}, ts, nil, r.BringUp.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_Ingest:
 		ts, err := TargetSpecFrom(r.Ingest.GetTargetSpec())
@@ -1237,8 +1298,10 @@ func ScheduledOperationFrom(
 
 	case *pb.ScheduledOperation_UpgradeFirmware:
 		info := &operations.FirmwareControlTaskInfo{
-			Operation:     operations.FirmwareOperationUpgrade,
-			TargetVersion: r.UpgradeFirmware.GetTargetVersion(),
+			Operation:              operations.FirmwareOperationUpgrade,
+			TargetVersion:          r.UpgradeFirmware.GetTargetVersion(),
+			SubTargets:             r.UpgradeFirmware.GetSubTargets(),
+			OverrideReadinessCheck: r.UpgradeFirmware.GetOverrideReadinessCheck(),
 		}
 
 		if r.UpgradeFirmware.GetStartTime() != nil {

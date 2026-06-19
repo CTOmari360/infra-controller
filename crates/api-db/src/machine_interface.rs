@@ -17,7 +17,6 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use carbide_utils::redfish::BmcAccessInfo;
@@ -29,7 +28,6 @@ use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
@@ -45,6 +43,7 @@ use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
+use crate::host_naming::{self, NamingContext};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::machine_interface_address::{AddressAlreadyInUseError, MachineInterfaceAddressWithType};
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
@@ -96,6 +95,13 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
+#[cfg(test)]
+mod ip_allocator;
+#[cfg(test)]
+mod test_duplicate_mac;
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy)]
 pub struct MacAddressColumn;
 impl ColumnInfo<'_> for MacAddressColumn {
@@ -142,7 +148,9 @@ impl ColumnInfo<'_> for SwitchIdColumn {
 /// A denormalized view on machine_interfaces that aggregates the addresses and vendors using
 /// JSON_AGG. This query is also used by machines.rs as a subquery when collecting machine
 /// snapshots.
-pub const MACHINE_INTERFACE_SNAPSHOT_QUERY: &str = r#"
+macro_rules! machine_interface_snapshot_query {
+    () => {
+        r#"
     SELECT mi.*,
         COALESCE(addresses_agg.json, '[]'::json) AS addresses,
         COALESCE(vendors_agg.json, '[]'::json) AS vendors,
@@ -162,8 +170,9 @@ pub const MACHINE_INTERFACE_SNAPSHOT_QUERY: &str = r#"
         FROM dhcp_entries d
         WHERE d.machine_interface_id = mi.id
         GROUP BY d.machine_interface_id
-    ) AS vendors_agg ON true
-"#;
+    ) AS vendors_agg ON true"#
+    };
+}
 
 /// Sets current machine interface primary attribute to provided value.
 pub async fn set_primary_interface(
@@ -177,6 +186,25 @@ pub async fn set_primary_interface(
         .bind(*interface_id)
         .fetch_one(txn)
         .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Records the vendor-native Redfish `EthernetInterface.Id` on the machine_interface
+/// row(s) with the given MAC. Captured by site-explorer per exploration; callers only
+/// invoke this when the id resolves from the current report, so a wiped MAC leaves the
+/// last-known-good id in place.
+pub async fn set_boot_interface_id(
+    mac_address: MacAddress,
+    boot_interface_id: &str,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machine_interfaces SET boot_interface_id=$1 WHERE mac_address=$2";
+    sqlx::query(query)
+        .bind(boot_interface_id)
+        .bind(mac_address)
+        .execute(txn)
+        .await
+        .map(|_| ())
         .map_err(|e| DatabaseError::query(query, e))
 }
 
@@ -241,18 +269,24 @@ pub async fn associate_interface_with_machine(
     association: MachineInterfaceAssociation,
     txn: &mut PgConnection,
 ) -> DatabaseResult<MachineInterfaceId> {
-    let (column_name, association_type, id_value) = match association {
-        MachineInterfaceAssociation::Machine(id) => ("machine_id", "Machine", id.to_string()),
-        MachineInterfaceAssociation::Switch(id) => ("switch_id", "Switch", id.to_string()),
-        MachineInterfaceAssociation::PowerShelf(id) => {
-            ("power_shelf_id", "PowerShelf", id.to_string())
-        }
+    let (query, association_type, id_value) = match association {
+        MachineInterfaceAssociation::Machine(id) => (
+            "UPDATE machine_interfaces SET machine_id=$1, association_type=$2::association_type where id=$3::uuid RETURNING id",
+            "Machine",
+            id.to_string(),
+        ),
+        MachineInterfaceAssociation::Switch(id) => (
+            "UPDATE machine_interfaces SET switch_id=$1, association_type=$2::association_type where id=$3::uuid RETURNING id",
+            "Switch",
+            id.to_string(),
+        ),
+        MachineInterfaceAssociation::PowerShelf(id) => (
+            "UPDATE machine_interfaces SET power_shelf_id=$1, association_type=$2::association_type where id=$3::uuid RETURNING id",
+            "PowerShelf",
+            id.to_string(),
+        ),
     };
-    let query = format!(
-        "UPDATE machine_interfaces SET {}=$1, association_type=$2::association_type where id=$3::uuid RETURNING id",
-        column_name
-    );
-    sqlx::query_as(&query)
+    sqlx::query_as(query)
         .bind(id_value)
         .bind(association_type)
         .bind(*interface_id)
@@ -269,7 +303,7 @@ pub async fn associate_interface_with_machine(
             {
                 DatabaseError::MaxOneInterfaceAssociation
             }
-            _ => DatabaseError::query(&query, err),
+            _ => DatabaseError::query(query, err),
         })
 }
 
@@ -319,19 +353,16 @@ pub async fn find_by_ip(
     txn: impl DbReader<'_>,
     ip: IpAddr,
 ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
-    lazy_static! {
-        static ref query: String = format!(
-            r#"{}
-            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
-            WHERE mia.address = $1::inet"#,
-            MACHINE_INTERFACE_SNAPSHOT_QUERY
-        );
-    }
-    sqlx::query_as(&query)
+    static QUERY: &str = concat!(
+        machine_interface_snapshot_query!(),
+        r#" INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+        WHERE mia.address = $1::inet"#,
+    );
+    sqlx::query_as(QUERY)
         .bind(ip)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
 pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<MachineInterfaceSnapshot>> {
@@ -388,20 +419,12 @@ pub async fn find_one(
 // newly_created_interface indicates that we couldn't find a
 // MachineInterface, so created new one.
 //
-// `is_primary` integrates `ExpectedHostNic.primary` into machine
-// interface creation. If True, this NIC is declared the primary
-// boot NIC (which is/was the previous default behavior anyway,
-// meaning None does the same thing), and this is fine, because
-// at the end of the day, site-explorer will end up demoting it
-// as part of attaching a DPU.
-//
-// Now, if it's *False*, there's a different NIC on this host declared
-// as the boot NIC, so we actually overide the new interface and
-// explicitly mark it as non-primary here. We *could* bake this in
-// as part of validate_existing_mac_and_create, but since this is
-// the only call-site that cares about it, I'm making it specific
-// to here.
-// TODO(chet): ...but consider plumbing it through.
+// `is_primary` carries the declared `ExpectedHostNic.primary` for this MAC:
+// `Some(true)` -- this NIC is the host's declared boot interface, `Some(false)`
+// -- a different NIC is, `None` -- nothing was declared. On a newly created (and
+// thus still machine-less) row we make that declaration stick, promoting to or
+// demoting from the creation default as needed, so the boot interface is right
+// from the first lease. `None` keeps the creation default.
 //
 // If we're not making a new interface, then existing interfaces
 // are returned untouched.
@@ -412,6 +435,7 @@ pub async fn find_or_create_machine_interface(
     relays: &[IpAddr],
     host_nic: Option<ExpectedHostNic>,
     is_primary: Option<bool>,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let relaystr = relays
         .iter()
@@ -424,15 +448,30 @@ pub async fn find_or_create_machine_interface(
                 %mac_address,
                 "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
             );
-            // validate_existing_mac_and_create hardcodes primary_interface: true
-            // at creation. If the caller has explicitly declared a *different*
-            // NIC as this machine's primary (i.e. is_primary == false), override the
-            // true/default here.
-            let mut interface =
-                validate_existing_mac_and_create(&mut *txn, mac_address, relays, host_nic).await?;
-            if is_primary == Some(false) && interface.primary_interface {
-                set_primary_interface(&interface.id, false, &mut *txn).await?;
-                interface.primary_interface = false;
+            let mut interface = validate_existing_mac_and_create(
+                &mut *txn,
+                mac_address,
+                relays,
+                host_nic,
+                retained_window,
+            )
+            .await?;
+            // Make the declaration authoritative on this machine-less row.
+            // `validate_existing_mac_and_create` defaults a freshly created row to
+            // primary, so the demote covers "a different NIC is declared primary"
+            // and the promote covers a row we *found* (rather than created) that is
+            // the declared primary. Safe on a NULL machine_id row: the
+            // one_primary_interface_per_machine index does not constrain it.
+            match is_primary {
+                Some(false) if interface.primary_interface => {
+                    set_primary_interface(&interface.id, false, &mut *txn).await?;
+                    interface.primary_interface = false;
+                }
+                Some(true) if !interface.primary_interface => {
+                    set_primary_interface(&interface.id, true, &mut *txn).await?;
+                    interface.primary_interface = true;
+                }
+                _ => {}
             }
             Ok(interface)
         }
@@ -462,6 +501,7 @@ pub async fn validate_existing_mac_and_create(
     mac_address: MacAddress,
     relays: &[IpAddr],
     host_nic: Option<ExpectedHostNic>,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     let mut interface_snapshot = find_by_mac_address(&mut *txn, mac_address).await?;
     match &interface_snapshot.len() {
@@ -511,12 +551,14 @@ pub async fn validate_existing_mac_and_create(
                 // Dynamic-pool allocation.
                 // Any AddressSelectionStrategy::StaticIp flows will have happened as part of
                 // preallocate_machine_interface or preallocate_bmc_machine_interface.
+                // (`create` recovers any retained boot interface id onto the new row.)
                 let v = create(
                     txn,
                     &network_segments,
                     &mac_address,
                     true,
                     AddressSelectionStrategy::NextAvailableIp,
+                    retained_window,
                 )
                 .await?;
                 Ok(v)
@@ -574,16 +616,32 @@ pub async fn preallocate_machine_interface(
     txn: &mut PgConnection,
     mac_address: MacAddress,
     static_ip: IpAddr,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<()> {
-    preallocate_machine_interface_with_type(txn, mac_address, static_ip, InterfaceType::Data).await
+    preallocate_machine_interface_with_type(
+        txn,
+        mac_address,
+        static_ip,
+        InterfaceType::Data,
+        retained_window,
+    )
+    .await
 }
 
 pub async fn preallocate_bmc_machine_interface(
     txn: &mut PgConnection,
     mac_address: MacAddress,
     static_ip: IpAddr,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<()> {
-    preallocate_machine_interface_with_type(txn, mac_address, static_ip, InterfaceType::Bmc).await
+    preallocate_machine_interface_with_type(
+        txn,
+        mac_address,
+        static_ip,
+        InterfaceType::Bmc,
+        retained_window,
+    )
+    .await
 }
 
 /// If a machine interface row already exists for `mac_address`, reconcile it against the
@@ -622,6 +680,7 @@ async fn preallocate_machine_interface_with_type(
     mac_address: MacAddress,
     static_ip: IpAddr,
     interface_type: InterfaceType,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<()> {
     // If there's already a matching record for (ip, mac), just return Ok,
     // instead of attempting to insert, getting a duplicate error, and then
@@ -651,6 +710,7 @@ async fn preallocate_machine_interface_with_type(
         interface_type != InterfaceType::Bmc,
         AddressSelectionStrategy::StaticAddress(static_ip),
         interface_type,
+        retained_window,
     )
     .await
     {
@@ -687,6 +747,7 @@ pub async fn create(
     macaddr: &MacAddress,
     primary_interface: bool,
     address_strategy: AddressSelectionStrategy,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     create_with_type(
         txn,
@@ -695,6 +756,7 @@ pub async fn create(
         primary_interface,
         address_strategy,
         InterfaceType::Data,
+        retained_window,
     )
     .await
 }
@@ -706,8 +768,9 @@ pub async fn create_with_type(
     primary_interface: bool,
     address_strategy: AddressSelectionStrategy,
     interface_type: InterfaceType,
+    retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    match address_strategy {
+    let mut snapshot = match address_strategy {
         AddressSelectionStrategy::NextAvailableIp | AddressSelectionStrategy::Automatic => {
             create_fast_path(txn, segments, macaddr, primary_interface, interface_type).await
         }
@@ -741,7 +804,22 @@ pub async fn create_with_type(
             )
             .await
         }
+    }?;
+
+    // Every brand-new row passes through here, whatever created it --
+    // dynamic DHCP, a static preallocation, or predicted-interface
+    // promotion. A prior row for this MAC may have been deleted with its
+    // boot interface id retained; recover the pair onto the new row and
+    // consume the retention record.
+    if snapshot.boot_interface_id.is_none()
+        && let Some(boot_interface_id) =
+            crate::retained_boot_interface::take_by_mac(&mut *txn, *macaddr, retained_window)
+                .await?
+    {
+        set_boot_interface_id(*macaddr, &boot_interface_id, &mut *txn).await?;
+        snapshot.boot_interface_id = Some(boot_interface_id);
     }
+    Ok(snapshot)
 }
 
 #[allow(txn_held_across_await)]
@@ -1007,24 +1085,34 @@ async fn create_inner(
     allocation_type: AllocationType,
     interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceId> {
-    // Prefer IPv4 for hostname (more human-readable), fall back to
-    // an IPv6-derived hostname otherwise.
-    let hostname_address = allocated_addresses
-        .iter()
-        .find(|a| a.is_ipv4())
-        .or(allocated_addresses.first())
-        .ok_or_else(|| {
-            let prefixes: Vec<_> = segment
-                .prefixes
-                .iter()
-                .map(|p| p.prefix.to_string())
-                .collect();
-            crate::DatabaseError::ResourceExhausted(format!(
-                "No IP addresses left in network segment (prefixes: {})",
-                prefixes.join(", ")
-            ))
-        })?;
-    let hostname = address_to_hostname(hostname_address)?;
+    // Allocation must have produced at least one address for the new interface.
+    if allocated_addresses.is_empty() {
+        let prefixes: Vec<_> = segment
+            .prefixes
+            .iter()
+            .map(|p| p.prefix.to_string())
+            .collect();
+        return Err(crate::DatabaseError::ResourceExhausted(format!(
+            "No IP addresses left in network segment (prefixes: {})",
+            prefixes.join(", ")
+        )));
+    }
+    // A brand-new interface has no stored name yet, so the configured strategy
+    // assigns one (IP-derived, a new fun name, etc.).
+    let ctx = NamingContext {
+        mac_address: *macaddr,
+        addresses: allocated_addresses,
+        current_hostname: None,
+        // Brand-new interface: not yet bound to a machine, so serial naming
+        // (if configured) uses a temporary IP-based name and switches later.
+        machine_id: None,
+        is_primary: primary_interface,
+        interface_type,
+        // The row doesn't exist yet.
+        interface_id: None,
+        domain_id,
+    };
+    let hostname = host_naming::hostname_for(txn, &ctx).await?;
 
     let interface_id = insert_machine_interface(
         txn,
@@ -1275,36 +1363,11 @@ async fn insert_machine_interface_address(
     Ok(())
 }
 
-/// address_to_hostname converts an IpAddr address to a hostname,
-/// verifying the resulting hostname is actually a valid DNS name
-/// before returning it.
-///
-/// IPv4: replaces dots with dashes, e.g. `192.168.1.2` → `192-168-1-2`
-/// IPv6: expands to full form and replaces colons with dashes,
-///       e.g. `2001:db8::2` → `2001-0db8-0000-0000-0000-0000-0000-0002`
-fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
-    let hostname = match address {
-        IpAddr::V4(_) => address.to_string().replace('.', "-"),
-        IpAddr::V6(v6) => v6
-            .segments()
-            .iter()
-            .map(|s| format!("{s:04x}"))
-            .collect::<Vec<_>>()
-            .join("-"),
-    };
-    match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
-        true => Ok(hostname),
-        false => Err(DatabaseError::internal(format!(
-            "invalid address to hostname: {hostname}"
-        ))),
-    }
-}
-
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
     txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    let mut query = FilterableQueryBuilder::new(MACHINE_INTERFACE_SNAPSHOT_QUERY)
+    let mut query = FilterableQueryBuilder::new(machine_interface_snapshot_query!())
         .filter_relation(&filter, Some("mi"));
     let interfaces = query
         .build_query_as::<MachineInterfaceSnapshot>()
@@ -1340,6 +1403,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     txn: &mut PgConnection,
     predicted_machine_interface: &PredictedMachineInterface,
     relay_ip: IpAddr,
+    retained_window: Option<chrono::Duration>,
 ) -> Result<(), DatabaseError> {
     tracing::info!(
         machine_id=%predicted_machine_interface.machine_id,
@@ -1364,53 +1428,82 @@ pub async fn move_predicted_machine_interface_to_machine(
         )));
     }
 
-    let machine_interface_id = match self::find_by_mac_address(
-        &mut *txn,
-        predicted_machine_interface.mac_address,
-    )
-    .await?
-    .into_iter()
-    .find(|machine_interface| machine_interface.segment_id == network_segment.id)
+    let existing_row =
+        self::find_by_mac_address(&mut *txn, predicted_machine_interface.mac_address)
+            .await?
+            .into_iter()
+            .find(|machine_interface| machine_interface.segment_id == network_segment.id);
+
+    if let Some(machine_id) = existing_row
+        .as_ref()
+        .and_then(|machine_interface| machine_interface.machine_id.as_ref())
     {
-        Some(machine_interface_snapshot) => {
-            match machine_interface_snapshot.machine_id.as_ref() {
-                None => {
-                    // This host has already DHCP'd once and created an anonymous machine_interface,
-                    // we will migrate it below.
-                    machine_interface_snapshot.id
-                }
-                Some(machine_id) => {
-                    if machine_id.ne(&predicted_machine_interface.machine_id) {
-                        tracing::error!(
-                            %machine_id,
-                            "Can't migrate predicted_machine_interface to machine_interface: one already exists with this MAC address"
-                        );
-                        return Err(DatabaseError::NetworkSegmentDuplicateMacAddress(
-                            predicted_machine_interface.mac_address,
-                        ));
-                    } else {
-                        tracing::warn!(
-                            %machine_id,
-                            "Bug: trying to move predicted_machine_interface to machine_interface, but it's already a part of this machine? Will proceed anyway."
-                        );
-                        machine_interface_snapshot.id
-                    }
-                }
-            }
+        if machine_id.ne(&predicted_machine_interface.machine_id) {
+            tracing::error!(
+                %machine_id,
+                "Can't migrate predicted_machine_interface to machine_interface: one already exists with this MAC address"
+            );
+            return Err(DatabaseError::NetworkSegmentDuplicateMacAddress(
+                predicted_machine_interface.mac_address,
+            ));
         }
-        None => {
-            // This host has never DHCP'd before, create a new machine_interface for it
-            let machine_interface = create(
-                txn,
-                &[network_segment],
-                &predicted_machine_interface.mac_address,
+        // To even get here, the interface must have been attached to the
+        // machine through some path that didn't clean up the prediction --
+        // think a concurrent DHCP for the same MAC, or an attach flow that
+        // doesn't know predictions exist. There's nothing left to migrate,
+        // so just finish the bookkeeping below and remove the prediction.
+        tracing::warn!(
+            %machine_id,
+            "Bug: trying to move predicted_machine_interface to machine_interface, but it's already a part of this machine? Will proceed anyway."
+        );
+    }
+
+    let (machine_interface_id, current_boot_interface_id, current_primary, row_created_here) =
+        match existing_row {
+            // This host has already DHCP'd once and created a machine_interface;
+            // we will migrate it below.
+            Some(machine_interface_snapshot) => (
+                machine_interface_snapshot.id,
+                machine_interface_snapshot.boot_interface_id,
+                machine_interface_snapshot.primary_interface,
                 false,
-                AddressSelectionStrategy::NextAvailableIp,
-            )
-            .await?;
-            machine_interface.id
-        }
-    };
+            ),
+            None => {
+                // This host has never DHCP'd before, create a new machine_interface for it
+                // (`create` recovers any retained boot interface id onto it). The promoted row
+                // is primary exactly when the prediction carries the declared
+                // `ExpectedHostNic.primary`.
+                let machine_interface = create(
+                    txn,
+                    &[network_segment],
+                    &predicted_machine_interface.mac_address,
+                    predicted_machine_interface.primary_interface,
+                    AddressSelectionStrategy::NextAvailableIp,
+                    retained_window,
+                )
+                .await?;
+                (
+                    machine_interface.id,
+                    machine_interface.boot_interface_id,
+                    machine_interface.primary_interface,
+                    true,
+                )
+            }
+        };
+
+    // Land the declared boot interface as we promote: the prediction holds the
+    // host's declared `ExpectedHostNic.primary`, so a promoted interface is primary
+    // exactly when it was declared. (An anonymous row found here keeps whatever
+    // flag DHCP set, so reconcile it to the declaration.) Done before association
+    // so a row reaches its machine already carrying the right flag.
+    if current_primary != predicted_machine_interface.primary_interface {
+        set_primary_interface(
+            &machine_interface_id,
+            predicted_machine_interface.primary_interface,
+            &mut *txn,
+        )
+        .await?;
+    }
 
     // Take either the newly-created interface or the anonymous one we found, and associate it with
     // this machine.
@@ -1420,6 +1513,41 @@ pub async fn move_predicted_machine_interface_to_machine(
         txn,
     )
     .await?;
+
+    // Resolve the promoted row's boot interface id. The prediction's value
+    // comes from the live report and outranks an existing row value: that
+    // row may have been created from a static preallocation (an
+    // ExpectedMachine `fixed_ip` recorded while the prediction was pending)
+    // and recovered an older retained id. The retention record is consumed
+    // either way (creation already consumed it, or the take here does):
+    // from here on the MAC has a `machine_interfaces` row for explorations
+    // to keep up to date.
+    let retained_boot_interface_id = if row_created_here {
+        // Creation already consumed the record; any recovered value is on
+        // the row (`current_boot_interface_id`).
+        None
+    } else {
+        crate::retained_boot_interface::take_by_mac(
+            &mut *txn,
+            predicted_machine_interface.mac_address,
+            retained_window,
+        )
+        .await?
+    };
+    let predicted_boot_interface_id = predicted_machine_interface.boot_interface_id.clone();
+    let resolved_boot_interface_id = predicted_boot_interface_id
+        .or(current_boot_interface_id.clone())
+        .or(retained_boot_interface_id);
+    if let Some(boot_interface_id) = resolved_boot_interface_id
+        && current_boot_interface_id.as_deref() != Some(boot_interface_id.as_str())
+    {
+        set_boot_interface_id(
+            predicted_machine_interface.mac_address,
+            &boot_interface_id,
+            &mut *txn,
+        )
+        .await?;
+    }
 
     crate::predicted_machine_interface::delete(predicted_machine_interface, txn).await?;
     Ok(())
@@ -1434,6 +1562,7 @@ pub async fn create_host_machine_dpu_interface_proactively(
     txn: &mut PgConnection,
     hardware_info: Option<&HardwareInfo>,
     dpu_id: &MachineId,
+    retained_window: Option<chrono::Duration>,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     let admin_networks = crate::network_segment::admin(txn).await?;
 
@@ -1470,9 +1599,16 @@ pub async fn create_host_machine_dpu_interface_proactively(
         }
     }
 
-    let machine_interface =
-        find_or_create_machine_interface(txn, existing_machine, host_mac, &gateways, None, None)
-            .await?;
+    let machine_interface = find_or_create_machine_interface(
+        txn,
+        existing_machine,
+        host_mac,
+        &gateways,
+        None,
+        None,
+        retained_window,
+    )
+    .await?;
     associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
 
     Ok(machine_interface)
@@ -1642,6 +1778,12 @@ pub async fn reconcile_admin_addresses_for_host(
                                 allocation_type: AllocationType::Dhcp,
                             }),
                     );
+                // The allocation also re-derives the hostname; refresh our local
+                // copy so the final naming pass below sees the row's real name.
+                interfaces[primary_index].hostname =
+                    find_one(txn.as_pgconn(), interfaces[primary_index].id)
+                        .await?
+                        .hostname;
                 active_config_changed = true;
             }
         }
@@ -1662,7 +1804,29 @@ pub async fn reconcile_admin_addresses_for_host(
         }
 
         if interface.addresses.is_empty() {
-            let hostname = dormant_admin_hostname(&interface.mac_address);
+            // This interface has lost all its IP addresses. The IP style parks
+            // it under a placeholder name; fun keeps the name it already has;
+            // serial renames it to its `serial-<mac>` form once the machine's
+            // serial is known. Either way we clear its domain so it drops out
+            // of DNS, since with no address there's nothing for a name to
+            // point at.
+            let ctx = NamingContext {
+                mac_address: interface.mac_address,
+                addresses: &[],
+                current_hostname: Some(&interface.hostname),
+                machine_id: Some(*host_machine_id),
+                // Should be always false here -- the above loop filters to
+                // non-primary links, but this should still read from the row
+                // so the context stays accurate (e.g. if the filter changes).
+                // In other words, a non-primary never takes the machine's
+                // (shared) bare serial.
+                is_primary: interface.primary_interface,
+                // DPU-backed host links are data interfaces by definition.
+                interface_type: InterfaceType::Data,
+                interface_id: Some(interface.id),
+                domain_id: interface.domain_id,
+            };
+            let hostname = host_naming::hostname_for(txn.as_pgconn(), &ctx).await?;
             if interface.domain_id.is_some() || interface.hostname != hostname {
                 update_hostname_and_domain(txn.as_pgconn(), interface.id, &hostname, None).await?;
                 interface.hostname = hostname;
@@ -1674,25 +1838,38 @@ pub async fn reconcile_admin_addresses_for_host(
     if let Some(primary_segment) = primary_segment {
         // Finally, make the primary DPU-backed interface metadata match the address that
         // will be visible through DHCP, DNS, and DPU admin config.
-        let active_address = interfaces[primary_index]
+        let primary = &interfaces[primary_index];
+        if primary.addresses.is_empty() {
+            return Err(DatabaseError::internal(format!(
+                "Primary admin interface {} has no address after reconciliation",
+                primary.id
+            )));
+        }
+        let active_addresses: Vec<IpAddr> = primary
             .addresses
             .iter()
-            .find(|address| address.address.is_ipv4())
-            .or_else(|| interfaces[primary_index].addresses.first())
-            .ok_or_else(|| {
-                DatabaseError::internal(format!(
-                    "Primary admin interface {} has no address after reconciliation",
-                    interfaces[primary_index].id
-                ))
-            })?
-            .address;
-        let active_hostname = address_to_hostname(&active_address)?;
-        if interfaces[primary_index].hostname != active_hostname
-            || interfaces[primary_index].domain_id != primary_segment.config.subdomain_id
+            .map(|address| address.address)
+            .collect();
+        let ctx = NamingContext {
+            mac_address: primary.mac_address,
+            addresses: &active_addresses,
+            current_hostname: Some(&primary.hostname),
+            // The primary admin interface: where serial naming takes effect, once the
+            // machine's discovered serial is available.
+            machine_id: Some(*host_machine_id),
+            is_primary: true,
+            // The primary admin interface is a data interface by definition.
+            interface_type: InterfaceType::Data,
+            interface_id: Some(primary.id),
+            domain_id: primary.domain_id,
+        };
+        let active_hostname = host_naming::hostname_for(txn.as_pgconn(), &ctx).await?;
+        if primary.hostname != active_hostname
+            || primary.domain_id != primary_segment.config.subdomain_id
         {
             update_hostname_and_domain(
                 txn.as_pgconn(),
-                interfaces[primary_index].id,
+                primary.id,
                 &active_hostname,
                 primary_segment.config.subdomain_id,
             )
@@ -1952,9 +2129,30 @@ RETURNING id"#;
     Ok(updated.is_some())
 }
 
-/// Builds the deterministic hostname used for dormant addressless admin interfaces.
-fn dormant_admin_hostname(mac_address: &MacAddress) -> String {
-    format!("noip-{}", mac_address.to_string().replace(':', "-"))
+/// Syncs a machine interface's hostname to its current address state after an
+/// address deletion, deferring to the configured naming strategy (the IP style
+/// re-derives from the remaining addresses or parks the interface under the
+/// dormant `noip-{mac}` placeholder; the other styles keep their names). When
+/// no addresses remain the domain is cleared so the interface drops out of DNS.
+pub async fn sync_hostname_after_address_change(
+    txn: &mut PgConnection,
+    interface_id: MachineInterfaceId,
+) -> DatabaseResult<()> {
+    let mut snapshot = find_one(&mut *txn, interface_id).await?;
+    // The snapshot aggregates addresses in no particular order; sort them so
+    // the derived name is stable across events.
+    snapshot.addresses.sort();
+    // With no addresses left, clear the domain so this interface drops out of
+    // DNS (a name needs an address to point at); otherwise keep its domain.
+    let domain_id = if snapshot.addresses.is_empty() {
+        None
+    } else {
+        snapshot.domain_id
+    };
+    let hostname =
+        host_naming::hostname_for(&mut *txn, &NamingContext::from_snapshot(&snapshot)).await?;
+    update_hostname_and_domain(txn, interface_id, &hostname, domain_id).await?;
+    Ok(())
 }
 
 pub async fn find_by_machine_and_segment(
@@ -1962,18 +2160,16 @@ pub async fn find_by_machine_and_segment(
     machine_id: &MachineId,
     segment_id: NetworkSegmentId,
 ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-    lazy_static! {
-        static ref query: String = format!(
-            "{} WHERE mi.machine_id = $1 AND mi.segment_id = $2::uuid",
-            MACHINE_INTERFACE_SNAPSHOT_QUERY
-        );
-    }
-    sqlx::query_as::<_, MachineInterfaceSnapshot>(&query)
+    static QUERY: &str = concat!(
+        machine_interface_snapshot_query!(),
+        " WHERE mi.machine_id = $1 AND mi.segment_id = $2::uuid",
+    );
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(QUERY)
         .bind(machine_id)
         .bind(segment_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(QUERY, e))
         .map(|interfaces| interfaces.into_iter().collect())
 }
 
@@ -2125,6 +2321,25 @@ pub async fn allocate_address_for_family(
     }
 
     fast_txn.commit().await?;
+
+    // Nothing allocated (no prefix for the requested family): leave the
+    // hostname and domain exactly as they were.
+    if allocated_addresses.is_empty() {
+        return Ok(allocated_addresses);
+    }
+
+    // Sync the hostname/domain to the interface's current address set via the
+    // configured naming strategy. Read the interface back so the strategy sees
+    // the full set (e.g. an existing IPv4 still wins the name on a later IPv6
+    // allocation) and the name it already has.
+    let mut snapshot = find_one(&mut *txn, interface_id).await?;
+    // The snapshot aggregates addresses in no particular order; sort them so
+    // the derived name is stable across events.
+    snapshot.addresses.sort();
+    let hostname =
+        host_naming::hostname_for(&mut *txn, &NamingContext::from_snapshot(&snapshot)).await?;
+    update_hostname_and_domain(txn, interface_id, &hostname, segment.config.subdomain_id).await?;
+
     Ok(allocated_addresses)
 }
 
@@ -2152,15 +2367,24 @@ pub async fn delete(
     interface_id: &MachineInterfaceId,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "DELETE FROM machine_interfaces WHERE id=$1";
+    let query =
+        "DELETE FROM machine_interfaces WHERE id=$1 RETURNING mac_address, boot_interface_id";
     crate::machine_interface_address::delete(txn, interface_id).await?;
     crate::dhcp_entry::delete(txn, interface_id).await?;
-    sqlx::query(query)
+    let deleted: Option<(MacAddress, Option<String>)> = sqlx::query_as(query)
         .bind(*interface_id)
-        .execute(&mut *txn)
+        .fetch_optional(&mut *txn)
         .await
-        .map(|_| ())
         .map_err(|e| DatabaseError::query(query, e))?;
+
+    // Every row deletion retains the boot pair: the vendor-named Redfish
+    // interface id is the one piece a future row for this MAC can't always
+    // rediscover (after a DPU/NIC mode flip the BMC can report the id
+    // without its MAC), so it outlives the row in `retained_boot_interfaces`
+    // no matter which caller deleted it.
+    if let Some((mac_address, Some(boot_interface_id))) = deleted {
+        crate::retained_boot_interface::upsert(&mut *txn, mac_address, &boot_interface_id).await?;
+    }
 
     let query = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
     sqlx::query(query)
@@ -2290,30 +2514,5 @@ WHERE network_segments.id = $1::uuid";
             ip_networks.push(network);
         }
         Ok(ip_networks)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_address_to_hostname_v4() {
-        let address: IpAddr = "192.168.1.0".parse().unwrap();
-        let hostname = address_to_hostname(&address).unwrap();
-        assert_eq!("192-168-1-0", hostname);
-    }
-
-    #[test]
-    fn test_address_to_hostname_v6() {
-        let address: IpAddr = "2001:db8:abcd::2".parse().unwrap();
-        let hostname = address_to_hostname(&address).unwrap();
-        assert_eq!("2001-0db8-abcd-0000-0000-0000-0000-0002", hostname);
-    }
-
-    #[test]
-    fn test_address_to_hostname_v6_loopback() {
-        let address: IpAddr = "::1".parse().unwrap();
-        let hostname = address_to_hostname(&address).unwrap();
-        assert_eq!("0000-0000-0000-0000-0000-0000-0000-0001", hostname);
     }
 }

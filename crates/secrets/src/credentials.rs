@@ -16,9 +16,7 @@
  */
 use core::fmt;
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, atomic};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
@@ -27,7 +25,6 @@ use mac_address::MacAddress;
 use rand::RngExt;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 use crate::SecretsError;
 
@@ -234,91 +231,6 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialManager
 {
 }
 
-#[derive(Default)]
-pub struct TestCredentialManager {
-    credentials: Mutex<HashMap<String, Credentials>>,
-    fallback_credentials: Option<Credentials>,
-    pub set_credentials_sleep_time_ms: AtomicU32,
-}
-
-impl TestCredentialManager {
-    /// Construct a TestCredentialManager which falls back on a default set of credentials if we
-    /// can't find matching ones set via set_credentials()
-    pub fn new(fallback_credentials: Credentials) -> Self {
-        Self {
-            credentials: Mutex::new(HashMap::new()),
-            fallback_credentials: Some(fallback_credentials),
-            set_credentials_sleep_time_ms: Default::default(),
-        }
-    }
-}
-
-#[async_trait]
-impl CredentialReader for TestCredentialManager {
-    async fn get_credentials(
-        &self,
-        key: &CredentialKey,
-    ) -> Result<Option<Credentials>, SecretsError> {
-        let credentials = self.credentials.lock().await;
-        let cred = credentials
-            .get(key.to_key_str().as_ref())
-            .or(self.fallback_credentials.as_ref());
-
-        Ok(cred.cloned())
-    }
-}
-
-#[async_trait]
-impl CredentialWriter for TestCredentialManager {
-    async fn set_credentials(
-        &self,
-        key: &CredentialKey,
-        credentials: &Credentials,
-    ) -> Result<(), SecretsError> {
-        let sleep_ms = self
-            .set_credentials_sleep_time_ms
-            .load(atomic::Ordering::Acquire);
-        if sleep_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
-        }
-        let mut data = self.credentials.lock().await;
-        data.insert(key.to_key_str().to_string(), credentials.clone());
-        Ok(())
-    }
-
-    async fn create_credentials(
-        &self,
-        key: &CredentialKey,
-        credentials: &Credentials,
-    ) -> Result<(), SecretsError> {
-        let sleep_ms = self
-            .set_credentials_sleep_time_ms
-            .load(atomic::Ordering::Acquire);
-        if sleep_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
-        }
-        let mut data = self.credentials.lock().await;
-        let key_str = key.to_key_str();
-        if data.contains_key(key_str.as_ref()) {
-            return Err(SecretsError::GenericError(eyre::eyre!(
-                "Secret already exists with key {key_str}"
-            )));
-        }
-
-        data.insert(key_str.to_string(), credentials.clone());
-        Ok(())
-    }
-
-    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
-        let mut data = self.credentials.lock().await;
-        let _ = data.remove(key.to_key_str().as_ref());
-
-        Ok(())
-    }
-}
-
-impl CredentialManager for TestCredentialManager {}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum CredentialType {
@@ -335,6 +247,15 @@ pub enum BmcCredentialType {
     BmcRoot { bmc_mac_address: MacAddress },
     // BMC Specific Forge-Admin Credentials
     BmcForgeAdmin { bmc_mac_address: MacAddress },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum NicLockdownIkm {
+    /// Site-wide SuperNIC lockdown IKM (input key material), versioned for
+    /// rotation. This is the secret the per-NIC lock keys are derived from, not
+    /// a lock key itself. Derived keys are never stored; only this IKM lives in
+    /// Vault.
+    SiteWide { version: u32 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -379,6 +300,9 @@ pub enum CredentialKey {
     BmcCredentials {
         credential_type: BmcCredentialType,
     },
+    NicLockdownIkm {
+        credential_type: NicLockdownIkm,
+    },
     ExtensionService {
         service_id: String,
         version: String,
@@ -402,6 +326,24 @@ pub enum CredentialKey {
     },
 }
 
+/// The site-wide default credentials endpoint exploration requires before it
+/// can run (validated by `SiteExplorer::check_preconditions`).
+///
+/// Single source of truth: the explorer's precondition check and the admin UI's
+/// "default credentials not set" warning both iterate this list so the two
+/// cannot drift apart. Order matches the explorer's original check order.
+pub const REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS: [CredentialKey; 3] = [
+    CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::SiteWideRoot,
+    },
+    CredentialKey::DpuUefi {
+        credential_type: CredentialType::SiteDefault,
+    },
+    CredentialKey::HostUefi {
+        credential_type: CredentialType::SiteDefault,
+    },
+];
+
 /// CredentialPrefix identifies a category of
 /// credentials by their shared path prefix.
 /// Useful for listing or querying all secrets
@@ -417,6 +359,7 @@ pub enum CredentialPrefix {
     DpuUefi,
     HostUefi,
     BmcCredentials,
+    NicLockdownIkm,
     ExtensionService,
     NmxM,
     SwitchNvosAdmin,
@@ -439,6 +382,7 @@ impl CredentialPrefix {
             Self::DpuUefi => "machines/all_dpus/",
             Self::HostUefi => "machines/all_hosts/",
             Self::BmcCredentials => "machines/bmc/",
+            Self::NicLockdownIkm => "machines/nic_lockdown_ikm/",
             Self::ExtensionService => "machines/extension-services/",
             Self::NmxM => "nmxm/",
             Self::SwitchNvosAdmin => "switch_nvos/",
@@ -460,6 +404,7 @@ impl CredentialPrefix {
             Self::DpuUefi,
             Self::HostUefi,
             Self::BmcCredentials,
+            Self::NicLockdownIkm,
             Self::ExtensionService,
             Self::NmxM,
             Self::SwitchNvosAdmin,
@@ -484,6 +429,7 @@ impl CredentialKey {
             Self::DpuUefi { .. } => CredentialPrefix::DpuUefi,
             Self::HostUefi { .. } => CredentialPrefix::HostUefi,
             Self::BmcCredentials { .. } => CredentialPrefix::BmcCredentials,
+            Self::NicLockdownIkm { .. } => CredentialPrefix::NicLockdownIkm,
             Self::ExtensionService { .. } => CredentialPrefix::ExtensionService,
             Self::NmxM { .. } => CredentialPrefix::NmxM,
             Self::SwitchNvosAdmin { .. } => CredentialPrefix::SwitchNvosAdmin,
@@ -558,6 +504,11 @@ impl CredentialKey {
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
             },
+            CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
+                NicLockdownIkm::SiteWide { version } => {
+                    Cow::from(format!("machines/nic_lockdown_ikm/site/root/v{version}"))
+                }
+            },
             CredentialKey::ExtensionService {
                 service_id,
                 version,
@@ -593,6 +544,7 @@ impl CredentialKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::credentials::TestCredentialManager;
 
     #[test]
     fn test_generated_password() {
@@ -619,6 +571,26 @@ mod tests {
         assert!(password.chars().any(|c| c.is_lowercase()));
         assert!(password.chars().any(|c| c.is_ascii_digit()));
         assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    // Pins the exact Vault path for the versioned lockdown IKM, including
+    // how the version is rendered (v{N}), since other components and the
+    // seed migration depend on this layout.
+    #[test]
+    fn lockdown_site_wide_path_is_versioned() {
+        let key = CredentialKey::NicLockdownIkm {
+            credential_type: NicLockdownIkm::SiteWide { version: 0 },
+        };
+        assert_eq!(key.to_key_str(), "machines/nic_lockdown_ikm/site/root/v0");
+        assert_eq!(key.prefix(), CredentialPrefix::NicLockdownIkm);
+
+        let key_v12 = CredentialKey::NicLockdownIkm {
+            credential_type: NicLockdownIkm::SiteWide { version: 12 },
+        };
+        assert_eq!(
+            key_v12.to_key_str(),
+            "machines/nic_lockdown_ikm/site/root/v12"
+        );
     }
 
     #[tokio::test]
@@ -769,6 +741,12 @@ mod tests {
                 "machines/bmc/",
             ),
             (
+                CredentialKey::NicLockdownIkm {
+                    credential_type: NicLockdownIkm::SiteWide { version: 0 },
+                },
+                "machines/nic_lockdown_ikm/",
+            ),
+            (
                 CredentialKey::ExtensionService {
                     service_id: "svc1".to_string(),
                     version: "v1".to_string(),
@@ -862,6 +840,9 @@ mod tests {
             CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRoot,
             },
+            CredentialKey::NicLockdownIkm {
+                credential_type: NicLockdownIkm::SiteWide { version: 0 },
+            },
             CredentialKey::ExtensionService {
                 service_id: "s".to_string(),
                 version: "v".to_string(),
@@ -898,6 +879,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 15);
+        assert_eq!(all.len(), 16);
     }
 }

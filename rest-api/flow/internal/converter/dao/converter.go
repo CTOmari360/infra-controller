@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package dao
 
@@ -25,24 +11,25 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	taskdef "github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/deviceinfo"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/errors"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/location"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/utils"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/bmc"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/component"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/nvldomain"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/rack"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	taskdef "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/errors"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/utils"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/bmc"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/nvldomain"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 )
 
 // BMCTypeFrom converts BMC type from DAO model to internal model.
@@ -126,6 +113,8 @@ func ComponentFrom(dao model.Component) *component.Component {
 		ComponentID: componentID,
 		RackID:      dao.RackID,
 		PowerState:  powerStateFromDAO(dao.PowerState),
+		Status:      dao.Status,
+		LeakStatus:  dao.LeakStatus,
 	}
 }
 
@@ -191,6 +180,7 @@ func TaskFrom(dao *model.Task) *taskdef.Task {
 		ExecutionID:    dao.ExecutionID,
 		Status:         dao.Status,
 		Message:        dao.Message,
+		Report:         dao.Report,
 		AppliedRuleID:  dao.AppliedRuleID,
 		CreatedAt:      dao.CreatedAt,
 		UpdatedAt:      dao.UpdatedAt,
@@ -326,8 +316,107 @@ func TaskTo(task *taskdef.Task) *model.Task {
 		ExecutionID:    task.ExecutionID,
 		Status:         task.Status,
 		Message:        task.Message,
+		Report:         task.Report,
 		AppliedRuleID:  task.AppliedRuleID,
 		QueueExpiresAt: task.QueueExpiresAt,
+	}
+}
+
+// OperationRunFrom converts an operation-run DAO model to its domain object.
+func OperationRunFrom(dao *model.OperationRun) *operationrun.OperationRun {
+	if dao == nil {
+		return nil
+	}
+
+	return &operationrun.OperationRun{
+		ID:                dao.ID,
+		Name:              dao.Name,
+		Description:       dao.Description,
+		Status:            dao.Status,
+		StatusReason:      dao.StatusReason,
+		StatusMessage:     dao.StatusMessage,
+		Selector:          dao.Selector,
+		Options:           dao.Options,
+		OperationTemplate: dao.OperationTemplate,
+		OperationType:     dao.OperationType,
+		OperationCode:     dao.OperationCode,
+		CreatedAt:         dao.CreatedAt,
+		UpdatedAt:         dao.UpdatedAt,
+		StartedAt:         dao.StartedAt,
+		FinishedAt:        dao.FinishedAt,
+	}
+}
+
+// OperationRunTo converts an operation-run domain object to its DAO model.
+func OperationRunTo(run *operationrun.OperationRun) *model.OperationRun {
+	if run == nil {
+		return nil
+	}
+
+	return &model.OperationRun{
+		ID:                run.ID,
+		Name:              run.Name,
+		Description:       run.Description,
+		Status:            run.Status,
+		StatusReason:      run.StatusReason,
+		StatusMessage:     run.StatusMessage,
+		Selector:          run.Selector,
+		Options:           run.Options,
+		OperationTemplate: run.OperationTemplate,
+		OperationType:     run.OperationType,
+		OperationCode:     run.OperationCode,
+		CreatedAt:         run.CreatedAt,
+		UpdatedAt:         run.UpdatedAt,
+		StartedAt:         run.StartedAt,
+		FinishedAt:        run.FinishedAt,
+	}
+}
+
+// OperationRunTargetFrom converts an operation-run target DAO model to its
+// domain object.
+func OperationRunTargetFrom(dao *model.OperationRunTarget) *operationrun.OperationRunTarget {
+	if dao == nil {
+		return nil
+	}
+
+	return &operationrun.OperationRunTarget{
+		ID:              dao.ID,
+		OperationRunID:  dao.OperationRunID,
+		RackID:          dao.RackID,
+		SequenceIndex:   dao.SequenceIndex,
+		PhaseIndex:      dao.PhaseIndex,
+		ComponentFilter: dao.ComponentFilter,
+		TaskID:          dao.TaskID,
+		Status:          dao.Status,
+		Message:         dao.Message,
+		RetryAfter:      dao.RetryAfter,
+		RetryState:      dao.RetryState,
+		CreatedAt:       dao.CreatedAt,
+		UpdatedAt:       dao.UpdatedAt,
+	}
+}
+
+// OperationRunTargetTo converts an operation-run target domain object to its
+// DAO model.
+func OperationRunTargetTo(target *operationrun.OperationRunTarget) *model.OperationRunTarget {
+	if target == nil {
+		return nil
+	}
+
+	return &model.OperationRunTarget{
+		ID:              target.ID,
+		OperationRunID:  target.OperationRunID,
+		RackID:          target.RackID,
+		SequenceIndex:   target.SequenceIndex,
+		PhaseIndex:      target.PhaseIndex,
+		ComponentFilter: target.ComponentFilter,
+		TaskID:          target.TaskID,
+		Status:          target.Status,
+		Message:         target.Message,
+		RetryAfter:      target.RetryAfter,
+		RetryState:      target.RetryState,
+		CreatedAt:       target.CreatedAt,
+		UpdatedAt:       target.UpdatedAt,
 	}
 }
 

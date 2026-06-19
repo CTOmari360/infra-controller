@@ -27,10 +27,14 @@ use attestation::{
     handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
 };
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{
     IntoLibredfish, IntoModel, machine_last_reboot_requested_mode,
 };
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialReader, Credentials,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
@@ -38,7 +42,6 @@ use config_version::{ConfigVersion, Versioned};
 use db::DatabaseError;
 use db::db_read::PgPoolReader;
 use eyre::eyre;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
 use futures_util::FutureExt;
 use health_report::{
@@ -73,12 +76,13 @@ use model::machine::{
     DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
     HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
     InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
-    PerformPowerOperation, PowerDrainState, PowerState, ReprovisionState, RetryInfo,
-    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
-    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
-    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
+    dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
@@ -94,6 +98,7 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
+use crate::boot_interface::boot_interface_target;
 use crate::config::{
     FirmwareGlobal, MachineStateHandlerSiteConfig, MachineValidationConfig, TimePeriod,
 };
@@ -114,6 +119,9 @@ mod helpers;
 mod machine_validation;
 mod power;
 mod sku;
+#[cfg(test)]
+mod test_machine_setup;
+
 use bios_config::{
     BiosConfigJobAdvanceOutcome, BiosConfigOutcome, PollingBiosSetupOutcome,
     advance_bios_config_job, advance_polling_bios_setup, configure_host_bios,
@@ -137,6 +145,12 @@ pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 
 #[cfg(test)]
 pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 2; // Faster for tests
+
+#[cfg(not(test))]
+pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 5;
+
+#[cfg(test)]
+pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 2; // Faster for tests
 
 // Compute the API-side deadline for a scout firmware upgrade from scout's
 // timeout envelope: fixed script download timeout, script execution timeout,
@@ -546,6 +560,18 @@ impl MachineStateHandler {
             state.host_snapshot.id.to_string(),
             &state.aggregate_health,
             &state.host_snapshot.health_reports,
+        );
+
+        // Feed the per-object health classification metric. The registry filters
+        // to the opted-in classifications and emits a series labeled with this
+        // host's id; emitting an empty set clears any prior series once the host
+        // becomes healthy.
+        let in_use = ctx.metrics.in_use_by_tenant.is_some();
+        ctx.services.per_object_metrics_registry.record(
+            "machine",
+            &state.host_snapshot.id.to_string(),
+            &ctx.metrics.health.health_alert_classifications,
+            vec![opentelemetry::KeyValue::new("in_use", in_use.to_string())],
         );
     }
 
@@ -1804,6 +1830,33 @@ impl MachineStateHandler {
                     )?,
                 );
             }
+            ManagedHostState::Failed { .. }
+                if is_unassigned_dpu_reprovision_host_boot_failure(
+                    managed_state,
+                    host_machine_id,
+                ) =>
+            {
+                set_managed_host_topology_update_needed(
+                    ctx.pending_db_writes,
+                    &state.host_snapshot,
+                    &dpus_for_reprov,
+                );
+
+                // Host boot repair failures leave the host in top-level Failed; restart must
+                // reconstruct the reprovision map instead of trying to advance from Failed.
+                next_state = Some(
+                    ReprovisionState::next_substate_based_on_bfb_support(
+                        self.enable_secure_boot,
+                        state,
+                        ctx.services.site_config.dpf_enabled,
+                    )
+                    .next_state_with_all_dpus_updated(
+                        &ManagedHostState::Ready,
+                        &state.dpu_snapshots,
+                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                    )?,
+                );
+            }
             _ => {
                 next_state = None;
             }
@@ -1824,6 +1877,25 @@ impl MachineStateHandler {
 
         Ok(None)
     }
+}
+
+fn is_unassigned_dpu_reprovision_host_boot_failure(
+    managed_state: &ManagedHostState,
+    host_machine_id: &MachineId,
+) -> bool {
+    matches!(
+        managed_state,
+        ManagedHostState::Failed {
+            machine_id,
+            details:
+                FailureDetails {
+                    cause: FailureCause::BiosSetupFailed { .. },
+                    source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+                    ..
+                },
+            ..
+        } if machine_id == host_machine_id
+    )
 }
 
 #[derive(Clone)]
@@ -2156,6 +2228,16 @@ fn is_dpu_up(state: &ManagedHostStateSnapshot, dpu_snapshot: &Machine) -> bool {
     true
 }
 
+fn is_dpu_observed_since(dpu_snapshot: &Machine, minimum_observed_at: DateTime<Utc>) -> bool {
+    let observation_time = dpu_snapshot
+        .network_status_observation
+        .as_ref()
+        .map(|o| o.observed_at)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+
+    observation_time >= minimum_observed_at
+}
+
 /// are_dpus_up_trigger_reboot_if_needed returns true if the dpu_agent indicates that the DPU has rebooted and is healthy.
 /// otherwise returns false. triggers a reboot in case the DPU is down/bricked.
 async fn are_dpus_up_trigger_reboot_if_needed(
@@ -2217,36 +2299,25 @@ impl StateHandler for MachineStateHandler {
             continue_state_machine,
             msg,
         } = match mh_snapshot.host_snapshot.state.value {
-            ManagedHostState::Assigned {
-                instance_state: InstanceState::Ready,
-            } => {
-                // We can't touch a machine which is in Assigned/Ready state. A tenant owns it.
-                PowerHandlingOutcome::new(None, true, None)
+            ManagedHostState::Ready if self.power_options_config.enabled => {
+                power::handle_power(mh_snapshot, ctx, &self.power_options_config).await?
             }
-            ManagedHostState::HostReprovision { .. }
-            | ManagedHostState::Assigned {
-                instance_state: InstanceState::HostReprovision { .. },
-            } => {
-                // During host reprovisioning (firmware updates), the state controller
-                // manages power directly (ForceOff → ACPowercycle → On). The power
-                // manager must not interfere, otherwise it may power the host back on
-                // between ForceOff and ACPowercycle, causing AuxPowerReset to fail
-                // with ChassisPowerStateOffRequired.
-                PowerHandlingOutcome::new(None, true, None)
-            }
-            _ => {
-                if self.power_options_config.enabled {
-                    power::handle_power(mh_snapshot, ctx, &self.power_options_config).await?
-                } else {
-                    PowerHandlingOutcome::new(None, true, None)
-                }
-            }
+            _ => PowerHandlingOutcome::new(None, true, None),
         };
 
         // Clone the pool before we borrow ctx mutably
         let power_options_pool = ctx.services.db_pool.clone();
 
         let was_ready = matches!(mh_snapshot.managed_state, ManagedHostState::Ready);
+
+        if !mh_snapshot.host_snapshot.dpf.used_for_ingestion {
+            tracing::debug!(
+                machine_id = %host_machine_id,
+                removed_in = "v2.1",
+                docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+                "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+            );
+        }
 
         let mut result = if continue_state_machine {
             self.attempt_state_transition(host_machine_id, mh_snapshot, ctx)
@@ -2655,6 +2726,24 @@ pub fn identify_dpu(dpu_snapshot: &Machine) -> DpuModel {
     model.into()
 }
 
+fn update_reprovision_targets_to_reprovision_state(
+    state: &ManagedHostStateSnapshot,
+    reprovision_state: ReprovisionState,
+) -> Result<ManagedHostState, StateHandlerError> {
+    // Host repair steps are shared, but only DPUs with active requests own reprovision state.
+    let reprovision_target_dpu_ids = state
+        .dpu_snapshots
+        .iter()
+        .filter_map(|dpu| dpu.reprovision_requested.as_ref().map(|_| &dpu.id))
+        .collect_vec();
+
+    reprovision_state.next_state_with_all_dpus_updated(
+        &state.managed_state,
+        &state.dpu_snapshots,
+        reprovision_target_dpu_ids,
+    )
+}
+
 /// Handle workflow of DPU reprovision
 #[allow(clippy::too_many_arguments)]
 async fn handle_dpu_reprovision(
@@ -2724,7 +2813,7 @@ async fn handle_dpu_reprovision(
                 .iter()
                 .filter_map(|x| {
                     if x.reprovision_requested.is_some() {
-                        state.managed_state.as_reprovision_state(dpu_machine_id)
+                        state.managed_state.as_reprovision_state(&x.id)
                     } else {
                         None
                     }
@@ -2813,12 +2902,15 @@ async fn handle_dpu_reprovision(
             ))
         }
         ReprovisionState::WaitingForNetworkConfig => {
+            // Host boot repair is host-scoped, so wait until every reprovisioning
+            // DPU has reached the same post-network-config point before touching
+            // host BIOS.
             let dpus_states_for_reprov = &state
                 .dpu_snapshots
                 .iter()
                 .filter_map(|x| {
                     if x.reprovision_requested.is_some() {
-                        state.managed_state.as_reprovision_state(dpu_machine_id)
+                        state.managed_state.as_reprovision_state(&x.id)
                     } else {
                         None
                     }
@@ -2830,13 +2922,18 @@ async fn handle_dpu_reprovision(
                     "Waiting for DPUs to come in WaitingForNetworkConfig state.".to_string(),
                 ));
             }
+
+            // Validate all DPUs before host boot repair; subsequent states may
+            // reboot the host or BMC and should not run while any DPU is still
+            // unhealthy or unsynced.
             for dsnapshot in &state.dpu_snapshots {
                 if !is_dpu_up(state, dsnapshot) {
                     let msg = format!("Waiting for DPU {} to come up", dsnapshot.id);
                     tracing::warn!("{msg}");
 
                     let mut reboot_status = None;
-                    // Reboot only dpu for which handler is called.
+                    // Only the DPU handled by this invocation should trigger its
+                    // own recovery reboot; other DPUs are observed for gating.
                     if dpu_snapshot.id == dsnapshot.id {
                         reboot_status = Some(
                             trigger_reboot_if_needed(
@@ -2861,11 +2958,12 @@ async fn handle_dpu_reprovision(
                 ) {
                     tracing::warn!("Waiting for network to be ready for DPU {}", dsnapshot.id);
 
-                    // we requested a DPU reboot in ReprovisionState::WaitingForNetworkInstall
-                    // let the trigger_reboot_if_needed determine if we are stuck here
-                    // (based on how long it has been since the last requested reboot)
+                    // The install path already requested a DPU reboot. If this
+                    // specific DPU remains unsynced, let trigger_reboot_if_needed
+                    // decide whether enough time has elapsed for another reboot.
                     let mut reboot_status = None;
-                    // Reboot only dpu for which handler is called.
+                    // Only the DPU handled by this invocation should trigger its
+                    // own recovery reboot; other DPUs are observed for gating.
                     if dpu_snapshot.id == dsnapshot.id {
                         reboot_status = Some(
                             trigger_reboot_if_needed(
@@ -2886,18 +2984,395 @@ async fn handle_dpu_reprovision(
                 }
             }
 
-            let mut txn = ctx.services.db_pool.begin().await?;
+            Ok(StateHandlerOutcome::transition(
+                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
+            ))
+        }
+        ReprovisionState::PrepareHostBootRepair => {
+            // Ensure host boot repair does not write through a locked BMC.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
 
-            // Clear reprovisioning state.
-            for dpu_snapshot in &state.dpu_snapshots {
-                db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.id, false)
-                    .await?;
+            let next_state = match redfish_client.lockdown_status().await {
+                Err(RedfishError::NotSupported(_)) => {
+                    tracing::info!(
+                        machine_id = %state.host_snapshot.id,
+                        "BMC vendor does not support checking lockdown status during DPU reprovision host boot repair"
+                    );
+                    ReprovisionState::CheckHostBootConfig
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        machine_id = %state.host_snapshot.id,
+                        error = %e,
+                        "Failed to fetch lockdown status during DPU reprovision host boot repair"
+                    );
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Failed to fetch lockdown status: {e}"
+                    )));
+                }
+                Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
+                    tracing::info!(
+                        machine_id = %state.host_snapshot.id,
+                        "Lockdown is enabled during DPU reprovision host boot repair; disabling before boot config checks"
+                    );
+                    ReprovisionState::UnlockHostForBootRepair {
+                        unlock_host_state: UnlockHostState::DisableLockdown,
+                    }
+                }
+                Ok(_) => ReprovisionState::CheckHostBootConfig,
+            };
+
+            Ok(StateHandlerOutcome::transition(
+                update_reprovision_targets_to_reprovision_state(state, next_state)?,
+            ))
+        }
+        ReprovisionState::UnlockHostForBootRepair { unlock_host_state } => {
+            // Mirror assigned platform config's unlock choreography before checking boot state.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            let next_state = match unlock_host_state {
+                UnlockHostState::DisableLockdown => {
+                    redfish_client
+                        .lockdown_bmc(EnabledDisabled::Disabled)
+                        .await
+                        .map_err(|e| redfish_error("lockdown_bmc", e))?;
+
+                    let vendor = state.host_snapshot.bmc_vendor();
+
+                    if vendor.is_supermicro() {
+                        tracing::info!(
+                            machine_id = %state.host_snapshot.id,
+                            %vendor,
+                            "BMC lockdown disabled; rebooting host so Redfish reflects actual boot order"
+                        );
+                        ReprovisionState::UnlockHostForBootRepair {
+                            unlock_host_state: UnlockHostState::RebootHost,
+                        }
+                    } else {
+                        tracing::info!(
+                            machine_id = %state.host_snapshot.id,
+                            %vendor,
+                            "BMC lockdown disabled; skipping post-unlock reboot (not required for this vendor)"
+                        );
+                        ReprovisionState::CheckHostBootConfig
+                    }
+                }
+                UnlockHostState::RebootHost => {
+                    host_power_control(
+                        redfish_client.as_ref(),
+                        &state.host_snapshot,
+                        SystemPowerControl::ForceRestart,
+                        ctx,
+                    )
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "failed to ForceRestart host after disabling BMC lockdown: {}",
+                            e
+                        ))
+                    })?;
+
+                    ReprovisionState::UnlockHostForBootRepair {
+                        unlock_host_state: UnlockHostState::WaitForUefiBoot,
+                    }
+                }
+                UnlockHostState::WaitForUefiBoot => {
+                    let entered_at = state.host_snapshot.state.version.timestamp();
+                    if wait(&entered_at, reachability_params.uefi_boot_wait) {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for UEFI boot to complete on {} after post-unlock reboot; \
+                             wait duration: {}, will proceed after {}",
+                            state.host_snapshot.id,
+                            reachability_params.uefi_boot_wait,
+                            entered_at + reachability_params.uefi_boot_wait,
+                        )));
+                    }
+
+                    ReprovisionState::CheckHostBootConfigAfterHostReboot
+                }
+            };
+
+            Ok(StateHandlerOutcome::transition(
+                update_reprovision_targets_to_reprovision_state(state, next_state)?,
+            ))
+        }
+        ReprovisionState::CheckHostBootConfig => {
+            // WaitingForNetworkConfig already accepted the DPU observation. Do
+            // not require a newer observation just because the host state
+            // version advanced while entering host boot repair.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            let next_state = match check_host_boot_config(
+                redfish_client.as_ref(),
+                state,
+                reachability_params,
+                HostBootConfigDpuFreshness::AlreadyValidated,
+                ctx,
+            )
+            .await?
+            {
+                HostBootConfigDecision::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+                HostBootConfigDecision::ConfigureBoot => {
+                    ReprovisionState::ConfigureHostBoot { retry_count: 0 }
+                }
+                HostBootConfigDecision::LockHost => ReprovisionState::LockHostAfterBootRepair,
+            };
+
+            Ok(StateHandlerOutcome::transition(
+                update_reprovision_targets_to_reprovision_state(state, next_state)?,
+            ))
+        }
+        ReprovisionState::CheckHostBootConfigAfterHostReboot => {
+            // This path rebooted the host after unlocking, so require a DPU
+            // observation newer than that reboot before trusting boot checks.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            let next_state = match check_host_boot_config(
+                redfish_client.as_ref(),
+                state,
+                reachability_params,
+                HostBootConfigDpuFreshness::SinceLastHostRebootRequest,
+                ctx,
+            )
+            .await?
+            {
+                HostBootConfigDecision::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+                HostBootConfigDecision::ConfigureBoot => {
+                    ReprovisionState::ConfigureHostBoot { retry_count: 0 }
+                }
+                HostBootConfigDecision::LockHost => ReprovisionState::LockHostAfterBootRepair,
+            };
+
+            Ok(StateHandlerOutcome::transition(
+                update_reprovision_targets_to_reprovision_state(state, next_state)?,
+            ))
+        }
+        ReprovisionState::ConfigureHostBoot { retry_count } => {
+            // Run machine_setup only after the reprovisioned DPU is healthy; it
+            // may patch BIOS settings and trigger host-impacting recovery.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            match configure_host_bios(
+                ctx,
+                reachability_params,
+                redfish_client.as_ref(),
+                state,
+                *retry_count,
+            )
+            .await?
+            {
+                BiosConfigOutcome::Done => Ok(StateHandlerOutcome::transition(
+                    update_reprovision_targets_to_reprovision_state(
+                        state,
+                        ReprovisionState::PollingHostBiosSetup {
+                            retry_count: *retry_count,
+                        },
+                    )?,
+                )),
+                BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => {
+                    Ok(StateHandlerOutcome::transition(
+                        update_reprovision_targets_to_reprovision_state(
+                            state,
+                            ReprovisionState::WaitingForHostBiosJob { bios_config_info },
+                        )?,
+                    ))
+                }
+                BiosConfigOutcome::WaitingForReboot(reason) => {
+                    Ok(StateHandlerOutcome::wait(reason))
+                }
+            }
+        }
+        ReprovisionState::WaitingForHostBiosJob { bios_config_info } => {
+            // Poll vendor BIOS jobs before verifying the setup and boot order.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            match advance_bios_config_job(
+                ctx,
+                redfish_client.as_ref(),
+                state,
+                bios_config_info.clone(),
+            )
+            .await?
+            {
+                BiosConfigJobAdvanceOutcome::Continue(updated) => {
+                    Ok(StateHandlerOutcome::transition(
+                        update_reprovision_targets_to_reprovision_state(
+                            state,
+                            ReprovisionState::WaitingForHostBiosJob {
+                                bios_config_info: updated,
+                            },
+                        )?,
+                    ))
+                }
+                BiosConfigJobAdvanceOutcome::Done => Ok(StateHandlerOutcome::transition(
+                    update_reprovision_targets_to_reprovision_state(
+                        state,
+                        ReprovisionState::PollingHostBiosSetup {
+                            retry_count: bios_config_info.retry_count,
+                        },
+                    )?,
+                )),
+                BiosConfigJobAdvanceOutcome::Failed { failure } => Ok(
+                    StateHandlerOutcome::transition(dpu_reprovision_host_boot_failed_state(
+                        &state.managed_state,
+                        state.host_snapshot.id,
+                        failure,
+                    )),
+                ),
+                BiosConfigJobAdvanceOutcome::RetryPlatformConfiguration { retry_count } => {
+                    Ok(StateHandlerOutcome::transition(
+                        update_reprovision_targets_to_reprovision_state(
+                            state,
+                            ReprovisionState::ConfigureHostBoot { retry_count },
+                        )?,
+                    ))
+                }
+                BiosConfigJobAdvanceOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+            }
+        }
+        ReprovisionState::PollingHostBiosSetup { retry_count } => {
+            // Verify machine_setup effects before promoting the DPU boot option.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            match advance_polling_bios_setup(
+                redfish_client.as_ref(),
+                state,
+                *retry_count,
+                &ctx.services.site_config.machine_state_controller,
+            )
+            .await?
+            {
+                PollingBiosSetupOutcome::Verified => {
+                    let next_state = if should_skip_boot_order_remediation(state) {
+                        ReprovisionState::LockHostAfterBootRepair
+                    } else {
+                        ReprovisionState::SetHostBootOrder {
+                            set_boot_order_info: SetBootOrderInfo {
+                                set_boot_order_jid: None,
+                                set_boot_order_state: SetBootOrderState::SetBootOrder,
+                                retry_count: 0,
+                            },
+                        }
+                    };
+
+                    Ok(StateHandlerOutcome::transition(
+                        update_reprovision_targets_to_reprovision_state(state, next_state)?,
+                    ))
+                }
+                PollingBiosSetupOutcome::EnterRecovery(bios_config_info) => {
+                    Ok(StateHandlerOutcome::transition(
+                        update_reprovision_targets_to_reprovision_state(
+                            state,
+                            ReprovisionState::WaitingForHostBiosJob { bios_config_info },
+                        )?,
+                    ))
+                }
+                PollingBiosSetupOutcome::Failed { failure } => Ok(StateHandlerOutcome::transition(
+                    dpu_reprovision_host_boot_failed_state(
+                        &state.managed_state,
+                        state.host_snapshot.id,
+                        failure,
+                    ),
+                )),
+                PollingBiosSetupOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+            }
+        }
+        ReprovisionState::SetHostBootOrder {
+            set_boot_order_info,
+        } => {
+            // Promote the selected DPU boot option after machine_setup has enabled it.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            match set_host_boot_order(
+                ctx,
+                reachability_params,
+                redfish_client.as_ref(),
+                state,
+                set_boot_order_info.clone(),
+            )
+            .await?
+            {
+                SetBootOrderOutcome::Continue(boot_order_info) => {
+                    Ok(StateHandlerOutcome::transition(
+                        update_reprovision_targets_to_reprovision_state(
+                            state,
+                            ReprovisionState::SetHostBootOrder {
+                                set_boot_order_info: boot_order_info,
+                            },
+                        )?,
+                    ))
+                }
+                SetBootOrderOutcome::Done => Ok(StateHandlerOutcome::transition(
+                    update_reprovision_targets_to_reprovision_state(
+                        state,
+                        ReprovisionState::LockHostAfterBootRepair,
+                    )?,
+                )),
+                SetBootOrderOutcome::WaitingForReboot(reason) => {
+                    Ok(StateHandlerOutcome::wait(reason))
+                }
+            }
+        }
+        ReprovisionState::LockHostAfterBootRepair => {
+            // Preserve expected-machine lockdown policy after temporarily
+            // opening the BMC for host boot repair.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&state.host_snapshot)
+                .await?;
+
+            if state.host_snapshot.host_profile.disable_lockdown {
+                tracing::info!(
+                    machine_id = %state.host_snapshot.id,
+                    "Skipping lockdown re-enable in DPU reprovision per expected-machine config"
+                );
+            } else {
+                match redfish_client.lockdown_bmc(EnabledDisabled::Enabled).await {
+                    Ok(()) => {}
+                    Err(RedfishError::NotSupported(_)) => {
+                        tracing::info!(
+                            machine_id = %state.host_snapshot.id,
+                            "BMC vendor does not support re-enabling lockdown after DPU reprovision host boot repair"
+                        );
+                    }
+                    Err(e) => return Err(redfish_error("lockdown_bmc", e)),
+                }
             }
 
             Ok(StateHandlerOutcome::transition(
-                next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
-            )
-            .with_txn(txn))
+                update_reprovision_targets_to_reprovision_state(
+                    state,
+                    ReprovisionState::RebootHostBmc,
+                )?,
+            ))
         }
         ReprovisionState::RebootHostBmc => {
             // Work around for FORGE-3864
@@ -2928,22 +3403,12 @@ async fn handle_dpu_reprovision(
                         }
                     })?;
 
-                    let bmc_ip_address = state
-                        .host_snapshot
-                        .bmc_info
-                        .ip
-                        .clone()
-                        .ok_or_else(|| StateHandlerError::MissingData {
+                    let bmc_ip_address = state.host_snapshot.bmc_info.ip.ok_or_else(|| {
+                        StateHandlerError::MissingData {
                             object_id: state.host_snapshot.id.to_string(),
                             missing: "bmc_ip",
-                        })?
-                        .parse()
-                        .map_err(|e| {
-                            StateHandlerError::GenericError(eyre!(
-                                "parsing the host's BMC IP address failed: {}",
-                                e
-                            ))
-                        })?;
+                        }
+                    })?;
 
                     if let Err(ipmitool_error) = ctx
                         .services
@@ -2977,17 +3442,204 @@ async fn handle_dpu_reprovision(
             // We can expect transient issues here in case we just rebooted the host's BMC and it has not come up yet
             handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await?;
 
+            let mut txn = ctx.services.db_pool.begin().await?;
+
+            // Clear reprovisioning requests only after the terminal host reboot is accepted.
+            for dpu_snapshot in &state.dpu_snapshots {
+                db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.id, false)
+                    .await?;
+            }
+
             // We need to wait for the host to reboot and submit its new Hardware information in
             // case of Ready.
-            Ok(StateHandlerOutcome::transition(
-                next_state_resolver.next_state(
+            Ok(
+                StateHandlerOutcome::transition(next_state_resolver.next_state(
                     &state.managed_state,
                     dpu_machine_id,
                     &state.host_snapshot,
-                )?,
-            ))
+                )?)
+                .with_txn(txn),
+            )
         }
         ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::do_nothing()),
+    }
+}
+
+/// Build the correct failed state for host boot repair during DPU reprovision.
+fn dpu_reprovision_host_boot_failed_state(
+    current_state: &ManagedHostState,
+    host_id: MachineId,
+    failure: String,
+) -> ManagedHostState {
+    // Attribute the failure to the flow that owns the current reprovision.
+    let source = FailureSource::StateMachineArea(
+        if matches!(current_state, ManagedHostState::Assigned { .. }) {
+            StateMachineArea::AssignedInstance
+        } else {
+            StateMachineArea::MainFlow
+        },
+    );
+
+    // Reuse the existing BIOS setup failure category for machine_setup repair.
+    let details = FailureDetails {
+        cause: FailureCause::BiosSetupFailed { err: failure },
+        failed_at: Utc::now(),
+        source,
+    };
+
+    // Preserve the top-level assigned-state shape for tenant-owned hosts.
+    if matches!(current_state, ManagedHostState::Assigned { .. }) {
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Failed {
+                details,
+                machine_id: host_id,
+            },
+        }
+    } else {
+        ManagedHostState::Failed {
+            details,
+            machine_id: host_id,
+            retry_count: 0,
+        }
+    }
+}
+
+/// Check whether host BIOS and DPU-first boot order remediation is required.
+async fn check_host_boot_config(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    dpu_freshness: HostBootConfigDpuFreshness,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<HostBootConfigDecision, StateHandlerError> {
+    // Wait for DPUs only when this caller needs a fresh observation. DPU
+    // reprovision already validated DPU health before entering host boot repair.
+    if should_wait_for_dpus_before_host_boot_config(
+        mh_snapshot,
+        reachability_params,
+        dpu_freshness,
+        ctx,
+    )
+    .await
+    {
+        return Ok(HostBootConfigDecision::Wait(
+            "Waiting for DPUs to come up.".to_string(),
+        ));
+    }
+
+    // Resolve the interface whose boot option should be first in host UEFI.
+    let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
+        StateHandlerError::GenericError(eyre::eyre!(
+            "Missing boot interface for host: {}",
+            mh_snapshot.host_snapshot.id
+        ))
+    })?;
+
+    let vendor = mh_snapshot.host_snapshot.bmc_vendor();
+
+    log_host_config(redfish_client, mh_snapshot).await;
+
+    let is_bios_setup = boot_interface
+        .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+        .await
+        .map_err(|e| redfish_error("is_bios_setup", e))?;
+
+    if should_skip_boot_order_remediation(mh_snapshot) {
+        if is_bios_setup {
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                bmc_vendor = %vendor,
+                "Skipping boot order remediation on Viking (known FW/BMC issue)"
+            );
+            return Ok(HostBootConfigDecision::LockHost);
+        }
+
+        tracing::warn!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            bmc_vendor = %vendor,
+            "Host BIOS setup is not configured properly on Viking; running BIOS repair before skipping boot order remediation"
+        );
+        return Ok(HostBootConfigDecision::ConfigureBoot);
+    }
+
+    let is_boot_order_setup = boot_interface
+        .run(|bi| redfish_client.is_boot_order_setup(bi))
+        .await
+        .map_err(|e| redfish_error("is_boot_order_setup", e))?;
+
+    if is_bios_setup && is_boot_order_setup {
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            bmc_vendor = %vendor,
+            "Host BIOS setup and boot order are configured properly"
+        );
+        Ok(HostBootConfigDecision::LockHost)
+    } else {
+        tracing::warn!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            bmc_vendor = %vendor,
+            is_bios_setup,
+            is_boot_order_setup,
+            "Host BIOS setup or boot order is not configured properly"
+        );
+        Ok(HostBootConfigDecision::ConfigureBoot)
+    }
+}
+
+/// Viking BMC firmware cannot safely run boot-order remediation; BIOS repair still applies.
+fn should_skip_boot_order_remediation(mh_snapshot: &ManagedHostStateSnapshot) -> bool {
+    mh_snapshot
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .is_some_and(|hw| hw.is_dgx_h100())
+}
+
+async fn should_wait_for_dpus_before_host_boot_config(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    dpu_freshness: HostBootConfigDpuFreshness,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> bool {
+    if !mh_snapshot.has_managed_dpus() {
+        return false;
+    }
+
+    match dpu_freshness {
+        HostBootConfigDpuFreshness::AlreadyValidated => false,
+        HostBootConfigDpuFreshness::CurrentHostState => {
+            !are_dpus_up_trigger_reboot_if_needed(mh_snapshot, reachability_params, ctx).await
+        }
+        HostBootConfigDpuFreshness::SinceLastHostRebootRequest => {
+            let Some(last_reboot_requested) = mh_snapshot.host_snapshot.last_reboot_requested
+            else {
+                tracing::warn!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "No host reboot request timestamp found before post-reboot host boot config check"
+                );
+                return false;
+            };
+
+            for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+                if !is_dpu_observed_since(dpu_snapshot, last_reboot_requested.time) {
+                    match trigger_reboot_if_needed(
+                        dpu_snapshot,
+                        mh_snapshot,
+                        None,
+                        reachability_params,
+                        ctx,
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!("could not reboot dpu {}: {e}", dpu_snapshot.id),
+                    }
+                    return true;
+                }
+            }
+
+            false
+        }
     }
 }
 
@@ -3619,7 +4271,7 @@ impl DpuMachineStateHandler {
                     return Ok(outcome);
                 }
 
-                let boot_interface_mac = None; // libredfish will choose the DPU
+                let boot_interface = None; // libredfish will choose the DPU
                 if self.enable_secure_boot {
                     dpu_redfish_client
                         .set_host_rshim(EnabledDisabled::Disabled)
@@ -3631,7 +4283,7 @@ impl DpuMachineStateHandler {
                         .map_err(|e| redfish_error("set_host_privilege_level", e))?;
                 } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
                     dpu_redfish_client.as_ref(),
-                    boot_interface_mac,
+                    boot_interface,
                     state.host_snapshot.associated_dpu_machine_ids().len(),
                     &ctx.services.site_config,
                 )
@@ -3733,6 +4385,28 @@ impl DpuMachineStateHandler {
                         "Polling BIOS setup status, waiting for settings to be applied on DPU {}",
                         dpu_snapshot.id
                     ))),
+                    Err(e)
+                        if carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready(&e) =>
+                    {
+                        let msg = format!(
+                            "DPU {} BIOS attributes not ready ({e}); issuing a force-restart to mitigate the known UEFI POST/BMC race",
+                            dpu_snapshot.id
+                        );
+                        tracing::warn!("{msg}");
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
+
+                        Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )))
+                    }
                     Err(e) => {
                         tracing::warn!(
                             dpu_id = %dpu_snapshot.id,
@@ -4163,6 +4837,20 @@ enum SetBootOrderOutcome {
     WaitingForReboot(String),
 }
 
+/// Decision from checking whether host boot repair is still required.
+enum HostBootConfigDecision {
+    ConfigureBoot,
+    LockHost,
+    Wait(String),
+}
+
+/// DPU observation freshness required before checking host boot config.
+enum HostBootConfigDpuFreshness {
+    AlreadyValidated,
+    CurrentHostState,
+    SinceLastHostRebootRequest,
+}
+
 /// In case machine does not come up until a specified duration, this function tries to reboot
 /// it again. The reboot continues till 6 hours only. After that this function gives up.
 /// WARNING:
@@ -4442,7 +5130,7 @@ fn post_cleanup_state(cleanup_context: CleanupContext) -> ManagedHostState {
     match cleanup_context {
         CleanupContext::Deprovision => ManagedHostState::BomValidating {
             bom_validating_state: BomValidating::UpdatingInventory(BomValidatingContext {
-                machine_validation_context: Some("Cleanup".to_string()),
+                machine_validation_context: Some(MachineValidationContext::Cleanup),
                 ..BomValidatingContext::default()
             }),
         },
@@ -5042,7 +5730,13 @@ impl StateHandler for HostMachineStateHandler {
                     }
                 }
                 MachineState::WaitingForDiscovery => {
-                    if mh_snapshot.host_snapshot.last_cleanup_time.is_none() {
+                    // Storage cleanup is a destructive disk wipe (NVMe/HDD) that scout runs after a
+                    // reset, so only a real, discovered host enters it. A predicted host waits for
+                    // discovery to promote it; the promoted host then does the cleanup.
+                    // (machine_scout.rs mirrors this on the scout side.)
+                    if mh_snapshot.host_snapshot.last_cleanup_time.is_none()
+                        && host_machine_id.machine_type().is_host()
+                    {
                         return Ok(StateHandlerOutcome::transition(waiting_for_cleanup_state(
                             CleanupState::Init,
                             CleanupContext::InitialDiscovery,
@@ -5100,7 +5794,7 @@ impl StateHandler for HostMachineStateHandler {
                                         bom_validating_state: BomValidating::MatchingSku(
                                             BomValidatingContext {
                                                 machine_validation_context: Some(
-                                                    "Discovery".to_string(),
+                                                    MachineValidationContext::Discovery,
                                                 ),
                                                 ..BomValidatingContext::default()
                                             },
@@ -5160,7 +5854,7 @@ impl StateHandler for HostMachineStateHandler {
                                     bom_validating_state: BomValidating::MatchingSku(
                                         BomValidatingContext {
                                             machine_validation_context: Some(
-                                                "Discovery".to_string(),
+                                                MachineValidationContext::Discovery,
                                             ),
                                             reboot_retry_count: None,
                                         },
@@ -5223,6 +5917,20 @@ impl StateHandler for HostMachineStateHandler {
                                 };
                                 Ok(StateHandlerOutcome::transition(next_state))
                             } else {
+                                // The DPU can only come up while the host is
+                                // powered on.
+                                if is_host_powered_off(mh_snapshot, ctx).await? {
+                                    tracing::error!(
+                                        machine_id = %mh_snapshot.host_snapshot.id,
+                                        "Host is powered off while waiting for DPU to report UP."
+                                    );
+
+                                    // TODO: power the host back on as a workaround. Lets wait and see if we can root cause why a host was powere off here.
+                                    return Err(StateHandlerError::GenericError(eyre!(
+                                        "Host {} is powered off while waiting for DPU to report UP",
+                                        mh_snapshot.host_snapshot.id
+                                    )));
+                                }
                                 Ok(StateHandlerOutcome::wait("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
                             }
                         }
@@ -5232,7 +5940,7 @@ impl StateHandler for HostMachineStateHandler {
                                     bom_validating_state: BomValidating::MatchingSku(
                                         BomValidatingContext {
                                             machine_validation_context: Some(
-                                                "Discovery".to_string(),
+                                                MachineValidationContext::Discovery,
                                             ),
                                             ..BomValidatingContext::default()
                                         },
@@ -6314,10 +7022,10 @@ impl StateHandler for InstanceStateHandler {
                                 &mh_snapshot.instance,
                                 &mh_snapshot.host_snapshot.spx_status_observation,
                             ) {
-                                return Ok(StateHandlerOutcome::wait(
-                                        "Waiting for DPA agent(s) to apply network config and report healthy network"
-                                            .to_string()
-                                    ));
+                                return Ok(StateHandlerOutcome::wait(format!(
+                                    "Waiting for DPA agent {dpa_id} to apply network config and report healthy network",
+                                    dpa_id = dpa_interface.id,
+                                )));
                             }
                         }
                     }
@@ -6352,19 +7060,25 @@ impl StateHandler for InstanceStateHandler {
 }
 
 // Gets extension services status from DB, checks if any removed services are fully terminated
-// across all DPUs, if so, remove them from the instance config in the DB(without updating the version).
+// across targeted DPUs, if so, remove them from the instance config in the DB(without updating the version).
 fn get_extension_services_status(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
 ) -> InstanceExtensionServicesStatus {
-    let (_, dpu_id_to_device_map) = mh_snapshot
+    let (_, device_to_id_map) = mh_snapshot
         .host_snapshot
         .get_dpu_device_and_id_mappings()
         .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
 
-    // Gather instance extension services status from all DPU observations
+    let primary_dpu_machine_id = mh_snapshot.host_snapshot.primary_attached_dpu_machine_id();
+    let used_dpus = instance
+        .config
+        .network
+        .get_used_dpus(&device_to_id_map, primary_dpu_machine_id);
+
+    // Gather instance extension services status from targeted DPUs.
     InstanceExtensionServicesStatus::from_config_and_observations(
-        &dpu_id_to_device_map,
+        &used_dpus,
         Versioned::new(
             &instance.config.extension_services,
             instance.extension_services_config_version,
@@ -7123,6 +7837,7 @@ impl HostUpgradeState {
                             power_drains_needed: *power_drains_needed,
                             delay_until: None,
                             last_power_drain_operation: None,
+                            reset_retry_count: 0,
                         };
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             next_reprov_state,
@@ -8201,6 +8916,7 @@ impl HostUpgradeState {
                             power_drains_needed: *power_drains_needed,
                             delay_until: None,
                             last_power_drain_operation: None,
+                            reset_retry_count: 0,
                         };
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             reprovision_state,
@@ -8330,6 +9046,7 @@ impl HostUpgradeState {
             power_drains_needed,
             delay_until,
             last_power_drain_operation,
+            reset_retry_count,
         ) = match details {
             HostReprovisionState::ResetForNewFirmware {
                 final_version,
@@ -8338,6 +9055,7 @@ impl HostUpgradeState {
                 power_drains_needed,
                 delay_until,
                 last_power_drain_operation,
+                reset_retry_count,
             } => (
                 final_version,
                 firmware_type,
@@ -8345,6 +9063,7 @@ impl HostUpgradeState {
                 power_drains_needed,
                 delay_until,
                 last_power_drain_operation,
+                reset_retry_count,
             ),
             _ => {
                 return Err(StateHandlerError::GenericError(eyre!(
@@ -8393,6 +9112,7 @@ impl HostUpgradeState {
                             power_drains_needed: Some(*power_drains_needed),
                             delay_until: Some(chrono::Utc::now().timestamp() + delay),
                             last_power_drain_operation: Some(PowerDrainState::Off),
+                            reset_retry_count: *reset_retry_count,
                         };
                         return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             reprovision_state,
@@ -8413,6 +9133,7 @@ impl HostUpgradeState {
                         power_drains_needed: Some(*power_drains_needed),
                         delay_until: Some(chrono::Utc::now().timestamp() + delay),
                         last_power_drain_operation: Some(PowerDrainState::Powercycle),
+                        reset_retry_count: *reset_retry_count,
                     };
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         reprovision_state,
@@ -8431,6 +9152,7 @@ impl HostUpgradeState {
                         power_drains_needed: Some(power_drains_needed - 1),
                         delay_until: Some(chrono::Utc::now().timestamp() + delay),
                         last_power_drain_operation: Some(PowerDrainState::On),
+                        reset_retry_count: *reset_retry_count,
                     };
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         reprovision_state,
@@ -8500,6 +9222,7 @@ impl HostUpgradeState {
             firmware_number: *firmware_number,
             final_version: final_version.to_string(),
             previous_reset_time: Some(Utc::now().timestamp()),
+            reset_retry_count: *reset_retry_count,
         };
         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
             reprovision_state,
@@ -8515,24 +9238,27 @@ impl HostUpgradeState {
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let (final_version, firmware_type, firmware_number, previous_reset_time) = match details {
-            HostReprovisionState::NewFirmwareReportedWait {
-                final_version,
-                firmware_type,
-                firmware_number,
-                previous_reset_time,
-            } => (
-                final_version,
-                firmware_type,
-                firmware_number,
-                previous_reset_time,
-            ),
-            _ => {
-                return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_new_firmware_reported_wait"
-                )));
-            }
-        };
+        let (final_version, firmware_type, firmware_number, previous_reset_time, reset_retry_count) =
+            match details {
+                HostReprovisionState::NewFirmwareReportedWait {
+                    final_version,
+                    firmware_type,
+                    firmware_number,
+                    previous_reset_time,
+                    reset_retry_count,
+                } => (
+                    final_version,
+                    firmware_type,
+                    firmware_number,
+                    previous_reset_time,
+                    reset_retry_count,
+                ),
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Wrong enum in host_new_firmware_reported_wait"
+                    )));
+                }
+            };
 
         let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, ctx).await? else {
             tracing::debug!("Waiting for site explorer to revisit {machine_id}");
@@ -8590,6 +9316,21 @@ impl HostUpgradeState {
                 && let Some(previous_reset_time) = previous_reset_time
                 && previous_reset_time + 30 * 60 <= Utc::now().timestamp()
             {
+                if *reset_retry_count >= MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES {
+                    let reason = format!(
+                        "Firmware version did not converge after completed update for {firmware_type}: expected {final_version}, found {current_versions:?} after {reset_retry_count} reset retries"
+                    );
+                    tracing::warn!(%machine_id, "{reason}");
+                    return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                        HostReprovisionState::FailedFirmwareUpgrade {
+                            firmware_type: *firmware_type,
+                            report_time: Some(Utc::now()),
+                            reason: Some(reason),
+                        },
+                        state.managed_state.get_host_repro_retry_count(),
+                    )));
+                }
+
                 tracing::info!(
                     "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
                     &endpoint.address,
@@ -8602,6 +9343,7 @@ impl HostUpgradeState {
                     power_drains_needed: None,
                     delay_until: None,
                     last_power_drain_operation: None,
+                    reset_retry_count: *reset_retry_count + 1,
                 };
                 return self
                     .host_reset_for_new_firmware(state, ctx, machine_id, details, scenario)
@@ -8758,6 +9500,19 @@ pub async fn host_power_state(
         .get_power_state()
         .await
         .map_err(|e| redfish_error("get_power_state", e))
+}
+
+/// Returns true if the host's current Redfish power state is `Off`.
+async fn is_host_powered_off(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await?;
+    let power_state = host_power_state(redfish_client.as_ref()).await?;
+    Ok(power_state == libredfish::PowerState::Off)
 }
 
 fn requires_manual_firmware_upgrade(
@@ -9055,7 +9810,7 @@ async fn wait_for_boss_controller_job_to_scheduled(
                 cleanup_context,
             )
         }
-        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+        _ if job_state.is_error_state() => {
             return handle_boss_controller_job_error(
                 boss_controller_id,
                 iteration.unwrap_or_default(),
@@ -9181,18 +9936,16 @@ async fn wait_for_boss_controller_job_to_complete(
             Ok(StateHandlerOutcome::transition(next_state))
         }
         // The job has failed; handle error
-        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
-            handle_boss_controller_job_error(
-                boss_controller_id,
-                iterations,
-                secure_erase_boss_controller,
-                cleanup_context,
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
-                )),
-                mh_snapshot.host_snapshot.state.version.since_state_change(),
-            )
-        }
+        _ if job_state.is_error_state() => handle_boss_controller_job_error(
+            boss_controller_id,
+            iterations,
+            secure_erase_boss_controller,
+            cleanup_context,
+            StateHandlerError::GenericError(eyre::eyre!(
+                "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
+            )),
+            mh_snapshot.host_snapshot.state.version.since_state_change(),
+        ),
         // The job is still running (hopefully...); wait for the job to complete
         _ => Ok(StateHandlerOutcome::wait(format!(
             "waiting for job {job_id} to complete; current state: {job_state:#?}"
@@ -9456,18 +10209,9 @@ async fn do_ipmi_restart(
     let ip: IpAddr = machine
         .bmc_info
         .ip
-        .as_ref()
         .ok_or_else(|| StateHandlerError::MissingData {
             object_id: machine.id.to_string(),
             missing: "bmc_ip",
-        })?
-        .parse()
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!(
-                "parsing BMC IP address for {} failed: {}",
-                machine.id,
-                e
-            ))
         })?;
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot {
@@ -9552,28 +10296,44 @@ fn can_restart_reprovision(dpu_snapshots: &[Machine], version: ConfigVersion) ->
 /// config job that must complete before configuring boot order; `Ok(None)` when no job to wait for.
 pub async fn call_machine_setup_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
-    boot_interface_mac: Option<&str>,
+    boot_interface: Option<&BootInterfaceTarget>,
     expected_dpu_count: usize,
     site_config: &MachineStateHandlerSiteConfig,
 ) -> Result<Option<String>, RedfishError> {
-    let setup_result = redfish_client
-        .machine_setup(
-            boot_interface_mac,
-            &site_config.bios_profiles,
-            site_config.selected_profile,
-            &site_config.oem_manager_profiles,
-        )
-        .await;
+    let setup_result = match boot_interface {
+        Some(target) => {
+            target
+                .run(|bi| {
+                    redfish_client.machine_setup(
+                        Some(bi),
+                        &site_config.bios_profiles,
+                        site_config.selected_profile,
+                        &site_config.oem_manager_profiles,
+                    )
+                })
+                .await
+        }
+        None => {
+            redfish_client
+                .machine_setup(
+                    None,
+                    &site_config.bios_profiles,
+                    site_config.selected_profile,
+                    &site_config.oem_manager_profiles,
+                )
+                .await
+        }
+    };
     handle_no_dpu_error(setup_result, expected_dpu_count, "machine_setup")
 }
 
 async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
-    boot_interface_mac: &str,
+    boot_interface: &BootInterfaceTarget,
     expected_dpu_count: usize,
 ) -> Result<Option<String>, RedfishError> {
-    let setup_result = redfish_client
-        .set_boot_order_dpu_first(boot_interface_mac)
+    let setup_result = boot_interface
+        .run(|bi| redfish_client.set_boot_order_dpu_first(bi))
         .await;
     handle_no_dpu_error(setup_result, expected_dpu_count, "set_boot_order_dpu_first")
 }
@@ -9913,84 +10673,27 @@ async fn handle_instance_host_platform_config(
             }
         }
         HostPlatformConfigurationState::CheckHostConfig => {
-            // For hosts with DPU(s), wait for DPU(s) to come up before reading
-            // BIOS state -- the host can report stale Redfish info from before the
-            // power cycle until the DPUs have finished initializing. Zero-DPU
-            // hosts skip this wait, because there are no DPUs to come up.
-            if mh_snapshot.has_managed_dpus()
-                && !are_dpus_up_trigger_reboot_if_needed(mh_snapshot, reachability_params, ctx)
-                    .await
+            match check_host_boot_config(
+                redfish_client.as_ref(),
+                mh_snapshot,
+                reachability_params,
+                HostBootConfigDpuFreshness::CurrentHostState,
+                ctx,
+            )
+            .await?
             {
-                return Ok(StateHandlerOutcome::wait(
-                    "Waiting for DPUs to come up.".to_string(),
-                ));
-            }
-
-            // Resolve the MAC whose interface should be first in the boot
-            // order. For hosts with DPUs, this is the DPU-facing PF (set as
-            // the primary_interface by site-explorer during DPU attach).
-            //
-            // For zero-DPU hosts, it's the operator-declared primary host
-            // NIC (which comes from `ExpectedHostNic.primary`) *or* the
-            // "lowest" deterministic-fallback host NIC.
-            let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface MAC for host: {}",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
-
-            let vendor = mh_snapshot.host_snapshot.bmc_vendor();
-
-            log_host_config(redfish_client.as_ref(), mh_snapshot).await;
-
-            let is_viking = mh_snapshot
-                .host_snapshot
-                .hardware_info
-                .as_ref()
-                .is_some_and(|hw| hw.is_dgx_h100());
-
-            let configure_host_boot_order = if is_viking {
-                // Viking BMC FW has known issues with the boot-order remediation path.
-                // Skip the unreliable Redfish read/PATCH sequence and apply the host's
-                // lockdown policy before continuing.
-                tracing::info!(
-                    machine_id = %mh_snapshot.host_snapshot.id,
-                    bmc_vendor = %vendor,
-                    "Skipping boot order remediation on Viking (known FW/BMC issue)"
-                );
-                false
-            } else if redfish_client
-                .is_boot_order_setup(&boot_interface_mac.to_string())
-                .await
-                .map_err(|e| redfish_error("is_boot_order_setup", e))?
-            {
-                tracing::info!(
-                    machine_id = %mh_snapshot.host_snapshot.id,
-                    bmc_vendor = %vendor,
-                    "Host boot order is configured properly"
-                );
-                false
-            } else {
-                tracing::warn!(
-                    machine_id = %mh_snapshot.host_snapshot.id,
-                    bmc_vendor = %vendor,
-                    "Host boot order is not configured properly"
-                );
-                true
-            };
-
-            if configure_host_boot_order {
-                InstanceState::HostPlatformConfiguration {
+                HostBootConfigDecision::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+                HostBootConfigDecision::ConfigureBoot => InstanceState::HostPlatformConfiguration {
                     platform_config_state: HostPlatformConfigurationState::ConfigureBios {
                         bios_config_info: None,
                         retry_count: 0,
                     },
-                }
-            } else {
-                InstanceState::HostPlatformConfiguration {
+                },
+                HostBootConfigDecision::LockHost => InstanceState::HostPlatformConfiguration {
                     platform_config_state: HostPlatformConfigurationState::LockHost,
-                }
+                },
             }
         }
         HostPlatformConfigurationState::ConfigureBios {
@@ -10093,12 +10796,16 @@ async fn handle_instance_host_platform_config(
         }
         HostPlatformConfigurationState::PollingBiosSetup { retry_count } => {
             let next_instance_state = InstanceState::HostPlatformConfiguration {
-                platform_config_state: HostPlatformConfigurationState::SetBootOrder {
-                    set_boot_order_info: SetBootOrderInfo {
-                        set_boot_order_jid: None,
-                        set_boot_order_state: SetBootOrderState::SetBootOrder,
-                        retry_count: 0,
-                    },
+                platform_config_state: if should_skip_boot_order_remediation(mh_snapshot) {
+                    HostPlatformConfigurationState::LockHost
+                } else {
+                    HostPlatformConfigurationState::SetBootOrder {
+                        set_boot_order_info: SetBootOrderInfo {
+                            set_boot_order_jid: None,
+                            set_boot_order_state: SetBootOrderState::SetBootOrder,
+                            retry_count: 0,
+                        },
+                    }
                 },
             };
 
@@ -10216,16 +10923,16 @@ async fn set_host_boot_order(
             //
             // Resolve the boot NIC MAC the same way `CheckHostConfig` does,
             // supporting hosts with DPU(s) and zero DPUs alike.
-            let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
+            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface MAC for host: {}",
+                    "Missing boot interface for host: {}",
                     mh_snapshot.host_snapshot.id
                 ))
             })?;
 
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
-                &boot_interface_mac.to_string(),
+                &boot_interface,
                 mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
             )
             .await
@@ -10363,8 +11070,7 @@ async fn set_host_boot_order(
                     libredfish::JobState::Completed => {
                         // Job completed successfully, proceed to CheckBootOrder
                     }
-                    libredfish::JobState::ScheduledWithErrors
-                    | libredfish::JobState::CompletedWithErrors => {
+                    _ if job_state.is_error_state() => {
                         tracing::warn!(
                             "SetBootOrder: job {} failed for {} with state {job_state:#?}, transitioning to HandleJobFailure",
                             job_id,
@@ -10501,15 +11207,15 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
+            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface MAC for host: {}",
+                    "Missing boot interface for host: {}",
                     mh_snapshot.host_snapshot.id
                 ))
             })?;
 
-            let boot_order_configured = redfish_client
-                .is_boot_order_setup(&boot_interface_mac.to_string())
+            let boot_order_configured = boot_interface
+                .run(|bi| redfish_client.is_boot_order_setup(bi))
                 .await
                 .map_err(|e| redfish_error("is_boot_order_setup", e))?;
 
@@ -10664,6 +11370,7 @@ mod tests {
             pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
         };
 
         let to_install = need_host_fw_upgrade(&endpoint, &fw_info, firmware_type)

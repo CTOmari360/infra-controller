@@ -1,28 +1,25 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestAPIUpdatePowerStateRequest_OverrideReadinessCheck(t *testing.T) {
+	var omitted APIUpdatePowerStateRequest
+	assert.NoError(t, json.Unmarshal([]byte(`{"siteId":"s","state":"on"}`), &omitted))
+	assert.False(t, omitted.OverrideReadinessCheck, "defaults to false when omitted")
+
+	var optIn APIUpdatePowerStateRequest
+	assert.NoError(t, json.Unmarshal([]byte(`{"siteId":"s","state":"on","overrideReadinessCheck":true}`), &optIn))
+	assert.True(t, optIn.OverrideReadinessCheck, "set when provided")
+}
 
 func TestAPIUpdatePowerStateRequest_Validate(t *testing.T) {
 	tests := []struct {

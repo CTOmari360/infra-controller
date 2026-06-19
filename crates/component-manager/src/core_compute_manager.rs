@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use carbide_redfish::libredfish::RedfishClientPool;
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use model::component_manager::{ComputeTrayComponent, PowerAction};
 
 use crate::compute_tray_manager::{
@@ -112,6 +112,7 @@ impl crate::compute_tray_manager::ComputeTrayManager for CoreComputeTrayManager 
         _endpoints: &[ComputeTrayEndpoint],
         _target_version: &str,
         _components: &[ComputeTrayComponent],
+        _options: &crate::types::FirmwareUpdateOptions,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
         Err(ComponentManagerError::Internal(
             "firmware update is not supported by the core compute tray backend".into(),

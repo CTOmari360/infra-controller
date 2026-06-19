@@ -1,19 +1,6 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package firmwaremanager
 
 import (
@@ -30,17 +17,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	dbtestutil "github.com/NVIDIA/infra-controller-rest/db/pkg/db/testutil"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/vendor"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/credentials"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/db/migrations"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/pmc"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/powershelf"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/pmcmanager"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/pmcregistry"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	dbtestutil "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/testutil"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/credentials"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/pmc"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/powershelf"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/pmcmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/pmcregistry"
 )
 
 func newCred(u, p string) *credential.Credential {
@@ -169,7 +157,7 @@ func TestIntegration_FirmwareManager_SetUpdateState(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -226,7 +214,7 @@ func TestIntegration_FirmwareManager_SetUpdateState_WithError(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -279,7 +267,7 @@ func TestIntegration_FirmwareManager_GetPendingUpdates(t *testing.T) {
 		pmcModel := &model.PMC{
 			MacAddress: model.MacAddr(p.GetMac()),
 			Vendor:     p.GetVendor().Code,
-			IPAddress:  model.IPAddr(p.GetIp()),
+			IPAddress:  sqltypes.IPAddr(p.GetIp()),
 		}
 		tx, err := session.BeginTx(ctx)
 		require.NoError(t, err)
@@ -344,7 +332,7 @@ func TestIntegration_FirmwareManager_BlockDuplicateUpdate(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -393,7 +381,7 @@ func TestIntegration_FirmwareManager_MultipleComponents(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -451,7 +439,7 @@ func TestIntegration_FirmwareManager_StateTransitionTimestamps(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -526,7 +514,7 @@ func TestIntegration_FirmwareManager_TerminalStateCheck(t *testing.T) {
 			pmcModel := &model.PMC{
 				MacAddress: model.MacAddr(testPmc.GetMac()),
 				Vendor:     testPmc.GetVendor().Code,
-				IPAddress:  model.IPAddr(testPmc.GetIp()),
+				IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 			}
 			tx, err := session.BeginTx(ctx)
 			require.NoError(t, err)

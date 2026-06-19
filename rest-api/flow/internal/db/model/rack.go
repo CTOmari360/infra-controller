@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/deviceinfo"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/utils"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/utils"
 )
 
 var defaultRackPagination = dbquery.Pagination{
@@ -45,13 +31,18 @@ type Rack struct {
 	Description  map[string]any `bun:"description,type:jsonb,json_use_number"`
 	Location     map[string]any `bun:"location,type:jsonb"`
 	NVLDomainID  uuid.UUID      `bun:"nvldomain_id,type:uuid"`
-	Status       RackStatus     `bun:"status,type:varchar(16),default:'new'"`
-	CreatedAt    time.Time      `bun:"created_at,nullzero,notnull,default:current_timestamp"`
-	UpdatedAt    time.Time      `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
-	IngestedAt   *time.Time     `bun:"ingested_at"`
-	DeletedAt    *time.Time     `bun:"deleted_at,soft_delete"`
-	Components   []Component    `bun:"rel:has-many,join:id=rack_id"`
-	NVLDomain    *NVLDomain     `bun:"rel:belongs-to,join:nvldomain_id=id"`
+	// ExternalID is Core's operator-supplied stable rack identifier
+	// (ExpectedRack.rack_id, e.g. "a12") populated by the expected-inventory
+	// mirror. NULL on racks that the mirror has never adopted (e.g. legacy
+	// ingestion-gRPC rows on first run).
+	ExternalID *string     `bun:"external_id"`
+	Status     RackStatus  `bun:"status,type:varchar(16),default:'new'"`
+	CreatedAt  time.Time   `bun:"created_at,nullzero,notnull,default:current_timestamp"`
+	UpdatedAt  time.Time   `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
+	IngestedAt *time.Time  `bun:"ingested_at"`
+	DeletedAt  *time.Time  `bun:"deleted_at,soft_delete"`
+	Components []Component `bun:"rel:has-many,join:id=rack_id"`
+	NVLDomain  *NVLDomain  `bun:"rel:belongs-to,join:nvldomain_id=id"`
 }
 
 type RackStatus string

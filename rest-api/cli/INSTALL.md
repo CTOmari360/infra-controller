@@ -47,8 +47,8 @@ If any of those are not true, the task is not complete.
 3. Clone the upstream repo (shallow clone is fine; this is a build workspace, not a development checkout):
 
    ```bash
-   git clone --depth 1 https://github.com/NVIDIA/infra-controller-rest.git
-   cd infra-controller-rest
+   git clone --depth 1 https://github.com/NVIDIA/infra-controller.git
+   cd infra-controller/rest-api
    ```
 
 4. Build and install with the provided `make` target:
@@ -125,7 +125,7 @@ If any of those are not true, the task is not complete.
 
 - **`fatal: unable to access 'https://github.com/...': ...` or `go mod download` network errors** — confirm the user has internet access and (if behind a corporate proxy) that `HTTPS_PROXY` / `GOPROXY` are set. Surface the exact error to the user; do not retry indefinitely.
 
-- **Repo not found at `NVIDIA/infra-controller-rest`** — the repo may have been renamed. Check <https://github.com/NVIDIA> for a repo whose name contains `infra-controller` or `nico`. If you cannot find it, stop and ask the user for the current location.
+- **Repo not found at `NVIDIA/infra-controller`** — the repo may have been renamed. Check <https://github.com/NVIDIA> for a repo whose name contains `infra-controller` or `nico`. If you cannot find it, stop and ask the user for the current location.
 
 - **`go: cannot find main module`** — you are not inside the cloned repo. Re-run `cd` into the cloned directory.
 
@@ -155,5 +155,4 @@ Once `nicocli --version` works, you may leave the cloned repo in place at `$WORK
 
 To install via your agent, paste the URL of this file as a prompt. Example phrasings:
 
-- "Install nicocli following the instructions at <https://github.com/NVIDIA/infra-controller-rest/blob/main/cli/INSTALL.md>"
-- "Follow the steps in cli/INSTALL.md from <https://github.com/NVIDIA/infra-controller-rest> to install nicocli on this machine."
+- "Install nicocli following the instructions at <https://github.com/NVIDIA/infra-controller/blob/main/rest-api/cli/INSTALL.md>"

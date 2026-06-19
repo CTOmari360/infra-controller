@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package types provides public domain types for the Flow client.
 // This package has minimal dependencies (only uuid) and can be imported
@@ -83,7 +69,7 @@ const (
 	DiffTypeUnknown    DiffType = "Unknown"
 	DiffTypeMissing    DiffType = "Missing"
 	DiffTypeUnexpected DiffType = "Unexpected"
-	DiffTypeDrift      DiffType = "Drift"
+	DiffTypeMismatch   DiffType = "Mismatch"
 )
 
 // OperationType represents the type of operation (power control, firmware, etc.).
@@ -93,4 +79,42 @@ const (
 	OperationTypeUnknown         OperationType = "UNKNOWN"
 	OperationTypePowerControl    OperationType = "POWER_CONTROL"
 	OperationTypeFirmwareControl OperationType = "FIRMWARE_CONTROL"
+)
+
+// LeakStatus is Flow's view of whether coolant leak detection has fired
+// for a component. It is set by the leak-detection loop from core's
+// tray-leak-detection health alert; LeakStatusUnknown is the resting value
+// for components the loop has not yet evaluated.
+type LeakStatus string
+
+const (
+	// LeakStatusUnknown: the leak-detection loop has not evaluated this
+	// component yet (e.g. before the first cycle, or a type the loop does
+	// not cover).
+	LeakStatusUnknown LeakStatus = "UNKNOWN"
+	// LeakStatusDetected: core is reporting an active leak alert.
+	LeakStatusDetected LeakStatus = "DETECTED"
+	// LeakStatusNotDetected: the loop evaluated the component and core is
+	// not reporting a leak alert.
+	LeakStatusNotDetected LeakStatus = "NOT_DETECTED"
+)
+
+// Phase is the coarse lifecycle bucket a component is in. Shared across
+// compute, nvswitch, and power shelf; map new core sub-states onto an
+// existing phase rather than adding new ones.
+type Phase string
+
+const (
+	// PhaseUnknown: no (or undecodable) core state observed yet.
+	PhaseUnknown Phase = "UNKNOWN"
+	// PhaseInitializing: on the path to Ready (provisioning, validating).
+	PhaseInitializing Phase = "INITIALIZING"
+	// PhaseReady: steady operational state.
+	PhaseReady Phase = "READY"
+	// PhaseInUse: tenant-owned or core has in-progress work.
+	PhaseInUse Phase = "IN_USE"
+	// PhaseError: terminal failure; needs human intervention.
+	PhaseError Phase = "ERROR"
+	// PhaseDeleting: being torn down.
+	PhaseDeleting Phase = "DELETING"
 )

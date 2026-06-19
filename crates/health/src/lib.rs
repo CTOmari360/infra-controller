@@ -16,9 +16,10 @@
  */
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use nv_redfish::bmc_http::reqwest::BmcError;
+use nv_redfish::bmc_http::reqwest::{
+    BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
+};
 use prometheus::{Gauge, GaugeVec, Opts};
 
 pub mod api_client;
@@ -37,7 +38,7 @@ pub mod sink;
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
-use crate::api_client::ApiClientWrapper;
+use crate::api_client::{ApiClientWrapper, ApiEndpointSource};
 use crate::config::Configurable;
 use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
@@ -85,6 +86,12 @@ pub enum HealthError {
 
     #[error("Redfish SSE not available: {0}")]
     SseNotAvailable(String),
+
+    #[error("gNMI error: {0}")]
+    GnmiError(String),
+
+    #[error("gNMI RPC failed: {0}")]
+    GnmiStatus(tonic::Status),
 }
 
 impl From<String> for HealthError {
@@ -110,11 +117,16 @@ struct EndpointWiring {
 }
 
 fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
+    let reqwest = ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
+        .map_err(BmcError::ReqwestError)?;
     let mut sources: Vec<Arc<dyn EndpointSource>> = Vec::new();
 
     if !config.endpoint_sources.static_bmc_endpoints.is_empty() {
         let static_source = StaticEndpointSource::from_config(
             config.endpoint_sources.static_bmc_endpoints.as_slice(),
+            &reqwest,
+            config.bmc_proxy_url.as_ref(),
+            config.cache_size,
         );
         sources.push(Arc::new(static_source));
     }
@@ -126,7 +138,13 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
         ));
-        sources.push(api_client as Arc<dyn EndpointSource>);
+        let endpoint_source = Arc::new(ApiEndpointSource::new(
+            api_client,
+            reqwest,
+            config.bmc_proxy_url.clone(),
+            config.cache_size,
+        ));
+        sources.push(endpoint_source as Arc<dyn EndpointSource>);
     }
 
     let composite_source = CompositeEndpointSource::new(sources);
@@ -313,15 +331,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
                     .set(stats.sharded_endpoints as f64);
                 active_endpoints_gauge.set(stats.active_monitors as f64);
 
-                tokio::time::sleep(
-                    config
-                        .collectors
-                        .sensors
-                        .as_option()
-                        .map(|s| s.rediscover_interval)
-                        .unwrap_or(Duration::from_secs(300)),
-                )
-                .await;
+                tokio::time::sleep(config.endpoint_discovery_interval).await;
             }
         }
     });

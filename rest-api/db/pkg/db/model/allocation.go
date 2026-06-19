@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,9 +8,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -158,17 +144,17 @@ type AllocationClearInput struct {
 }
 
 type AllocationFilterInput struct {
-	Name                     *string
-	InfrastructureProviderID *uuid.UUID
-	TenantIDs                []uuid.UUID
-	SiteIDs                  []uuid.UUID
-	Statuses                 []string
-	ResourceTypes            []string
-	AllocationIDs            []uuid.UUID
-	SearchQuery              *string
-	ResourceTypeIDs          []uuid.UUID
-	ConstraintTypes          []string
-	ConstraintValues         []int
+	Name                      *string
+	InfrastructureProviderIDs []uuid.UUID
+	TenantIDs                 []uuid.UUID
+	SiteIDs                   []uuid.UUID
+	Statuses                  []string
+	ResourceTypes             []string
+	AllocationIDs             []uuid.UUID
+	SearchQuery               *string
+	ResourceTypeIDs           []uuid.UUID
+	ConstraintTypes           []string
+	ConstraintValues          []int
 }
 
 var _ bun.BeforeAppendModelHook = (*Allocation)(nil)
@@ -292,9 +278,13 @@ func (asd AllocationSQLDAO) setQueryWithFilter(filter AllocationFilterInput, que
 		asd.tracerSpan.SetAttribute(allocationDAOSpan, "name", *filter.Name)
 	}
 
-	if filter.InfrastructureProviderID != nil {
-		query = query.Where("a.infrastructure_provider_id = ?", filter.InfrastructureProviderID)
-		asd.tracerSpan.SetAttribute(allocationDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
+	if filter.InfrastructureProviderIDs != nil {
+		if len(filter.InfrastructureProviderIDs) == 1 {
+			query = query.Where("a.infrastructure_provider_id = ?", filter.InfrastructureProviderIDs[0])
+		} else {
+			query = query.Where("a.infrastructure_provider_id IN (?)", bun.In(filter.InfrastructureProviderIDs))
+		}
+		asd.tracerSpan.SetAttribute(allocationDAOSpan, "infrastructure_provider_ids", filter.InfrastructureProviderIDs)
 	}
 
 	if filter.TenantIDs != nil {

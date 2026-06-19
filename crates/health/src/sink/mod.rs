@@ -34,8 +34,8 @@ mod tracing;
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
-    HealthReportSuccess, HealthReportTarget, LogRecord, Probe, ReportSource, SensorHealthContext,
-    SensorHealthData,
+    HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe, ReportSource,
+    SensorThresholdContext,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
@@ -65,8 +65,8 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::{
-        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, PrometheusSink,
-        SensorHealthData,
+        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, MetricSample,
+        PrometheusSink,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
@@ -125,7 +125,7 @@ mod tests {
         };
 
         let event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "key".to_string(),
                 name: "metric".to_string(),
                 metric_type: "gauge".to_string(),
@@ -179,12 +179,12 @@ mod tests {
         sink.handle_event(&context, &log_event);
 
         let export_after_log = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(!export_after_log.contains("test_sink_hw_sensor"));
 
         let metric_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "metric_key".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -199,9 +199,14 @@ mod tests {
         sink.handle_event(&context, &metric_event);
 
         let export_after_metric = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(export_after_metric.contains("test_sink_hw_sensor_temperature_celsius"));
+
+        let service_metrics = metrics_manager
+            .export_metrics()
+            .expect("service metrics export should work");
+        assert!(!service_metrics.contains("test_sink_hw_sensor_temperature_celsius"));
     }
 
     #[tokio::test]
@@ -232,7 +237,7 @@ mod tests {
         };
 
         let metric_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "metric_key".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -246,15 +251,15 @@ mod tests {
 
         sink.handle_event(&context, &metric_event);
         let export_before_remove = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(export_before_remove.contains("test_sink_hw_sensor_temperature_celsius"));
 
         sink.handle_event(&context, &CollectorEvent::CollectorRemoved);
 
         let export_after_remove = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(!export_after_remove.contains("test_sink_hw_sensor_temperature_celsius"));
         assert!(!export_after_remove.contains("endpoint_key=\"42:9e:b1:bd:9d:dd\""));
     }
@@ -289,7 +294,7 @@ mod tests {
         let start_event = CollectorEvent::MetricCollectionStart;
         sink.handle_event(&context, &start_event);
         let s1_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "s1".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -305,14 +310,14 @@ mod tests {
         sink.handle_event(&context, &end_event);
 
         let first_export = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(first_export.contains("sensor=\"temp1\""));
 
         let start_event = CollectorEvent::MetricCollectionStart;
         sink.handle_event(&context, &start_event);
         let s2_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "s2".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -328,8 +333,8 @@ mod tests {
         sink.handle_event(&context, &end_event);
 
         let second_export = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(!second_export.contains("sensor=\"temp1\""));
         assert!(second_export.contains("sensor=\"temp2\""));
     }

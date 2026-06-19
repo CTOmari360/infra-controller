@@ -26,6 +26,9 @@ use model::health::HealthReportSources;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
+mod per_object;
+pub use per_object::PerObjectMetricsRegistry;
+
 pub trait HealthMetricDimension:
     Hash + Eq + Clone + Default + Debug + Send + Sync + 'static
 {
@@ -130,6 +133,7 @@ impl<D: HealthMetricDimension> HealthIterationMetrics<D> {
 pub fn register_health_gauges<T, D, F>(
     metric_prefix: &str,
     suppressed_label_key: &'static str,
+    display_name_plural: &str,
     meter: &Meter,
     shared: SharedMetricsHolder<T>,
     project: F,
@@ -147,7 +151,7 @@ pub fn register_health_gauges<T, D, F>(
         meter
             .u64_observable_gauge(format!("{metric_prefix}_health_status_count"))
             .with_description(
-                "The total number of objects in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts",
+                format!("The total number of {display_name_plural} in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts"),
             )
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {

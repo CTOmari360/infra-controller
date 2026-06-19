@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -25,9 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
@@ -54,17 +41,17 @@ func testDomainSetupSchema(t *testing.T, dbSession *db.Session) {
 func testDomainBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
 	return user
 }
 
-func TestDomainSQLDAO_CreateFromParams(t *testing.T) {
+func TestDomainSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testDomainInitDB(t)
 	defer dbSession.Close()
@@ -81,16 +68,20 @@ func TestDomainSQLDAO_CreateFromParams(t *testing.T) {
 
 	tests := []struct {
 		desc               string
-		ds                 []Domain
+		inputs             []DomainCreateInput
 		expectError        bool
 		tx                 *db.Tx
 		verifyChildSpanner bool
 	}{
 		{
 			desc: "create one",
-			ds: []Domain{
+			inputs: []DomainCreateInput{
 				{
-					Hostname: "test.com", Org: "testOrg", ControllerDomainID: &controllerDomainID, Status: DomainStatusPending,
+					Hostname:           "test.com",
+					Org:                "testOrg",
+					ControllerDomainID: &controllerDomainID,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 			},
 			expectError:        false,
@@ -99,15 +90,27 @@ func TestDomainSQLDAO_CreateFromParams(t *testing.T) {
 		},
 		{
 			desc: "create multiple, some with null controllerDomainID field",
-			ds: []Domain{
+			inputs: []DomainCreateInput{
 				{
-					Hostname: "test1.com", Org: "testOrg1", ControllerDomainID: &controllerDomainID, Status: DomainStatusPending, CreatedBy: user.ID,
+					Hostname:           "test1.com",
+					Org:                "testOrg1",
+					ControllerDomainID: &controllerDomainID,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 				{
-					Hostname: "test2.com", Org: "testOrg2", ControllerDomainID: nil, Status: DomainStatusPending, CreatedBy: user.ID,
+					Hostname:           "test2.com",
+					Org:                "testOrg2",
+					ControllerDomainID: nil,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 				{
-					Hostname: "test3.com", Org: "testOrg3", ControllerDomainID: &controllerDomainID, Status: DomainStatusPending, CreatedBy: user.ID,
+					Hostname:           "test3.com",
+					Org:                "testOrg3",
+					ControllerDomainID: &controllerDomainID,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 			},
 			expectError: false,
@@ -115,15 +118,27 @@ func TestDomainSQLDAO_CreateFromParams(t *testing.T) {
 		},
 		{
 			desc: "create multiple, within transaction",
-			ds: []Domain{
+			inputs: []DomainCreateInput{
 				{
-					Hostname: "test4.com", Org: "testOrg1", ControllerDomainID: &controllerDomainID, Status: DomainStatusPending, CreatedBy: user.ID,
+					Hostname:           "test4.com",
+					Org:                "testOrg1",
+					ControllerDomainID: &controllerDomainID,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 				{
-					Hostname: "test5.com", Org: "testOrg2", ControllerDomainID: nil, Status: DomainStatusPending, CreatedBy: user.ID,
+					Hostname:           "test5.com",
+					Org:                "testOrg2",
+					ControllerDomainID: nil,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 				{
-					Hostname: "test6.com", Org: "testOrg3", ControllerDomainID: &controllerDomainID, Status: DomainStatusPending, CreatedBy: user.ID,
+					Hostname:           "test6.com",
+					Org:                "testOrg3",
+					ControllerDomainID: &controllerDomainID,
+					Status:             DomainStatusPending,
+					CreatedBy:          user.ID,
 				},
 			},
 			expectError: false,
@@ -132,10 +147,8 @@ func TestDomainSQLDAO_CreateFromParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			for _, i := range tc.ds {
-				d, err := dsd.CreateFromParams(
-					ctx, tc.tx, i.Hostname, i.Org, i.ControllerDomainID, i.Status, i.CreatedBy,
-				)
+			for _, input := range tc.inputs {
+				d, err := dsd.Create(ctx, tc.tx, input)
 				assert.Equal(t, tc.expectError, err != nil)
 				if !tc.expectError {
 					assert.NotNil(t, d)
@@ -164,7 +177,13 @@ func TestDomainSQLDAO_GetByID(t *testing.T) {
 	controllerDomainID := uuid.New()
 
 	dsd := NewDomainDAO(dbSession)
-	domain1, err := dsd.CreateFromParams(ctx, nil, "test.com", "testOrg", &controllerDomainID, DomainStatusPending, user.ID)
+	domain1, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test.com",
+		Org:                "testOrg",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -223,13 +242,31 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 	controllerDomainID := uuid.New()
 
 	dsd := NewDomainDAO(dbSession)
-	domain1, err := dsd.CreateFromParams(ctx, nil, "test1.com", "testOrg1", &controllerDomainID, DomainStatusPending, user.ID)
+	domain1, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test1.com",
+		Org:                "testOrg1",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, domain1)
-	domain2, err := dsd.CreateFromParams(ctx, nil, "test1.com", "testOrg2", &controllerDomainID, DomainStatusPending, user.ID)
+	domain2, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test1.com",
+		Org:                "testOrg2",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, domain2)
-	domain3, err := dsd.CreateFromParams(ctx, nil, "test2.com", "testOrg2", &controllerDomainID, DomainStatusPending, user.ID)
+	domain3, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test2.com",
+		Org:                "testOrg2",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, domain3)
 
@@ -238,85 +275,82 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 
 	tests := []struct {
 		desc               string
-		hostname           *string
-		org                *string
-		controllerDomainID *uuid.UUID
-		status             *string
+		filter             DomainFilterInput
 		expectedCnt        int
 		expectedError      bool
 		verifyChildSpanner bool
 	}{
 		{
 			desc:               "GetAll with no filters returns objects",
-			hostname:           nil,
-			org:                nil,
-			controllerDomainID: nil,
+			filter:             DomainFilterInput{},
 			expectedCnt:        3,
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
 		{
-			desc:               "GetAll with hostname filter returns objects",
-			hostname:           db.GetStrPtr("test1.com"),
-			org:                nil,
-			controllerDomainID: nil,
-			expectedCnt:        2,
-			expectedError:      false,
+			desc: "GetAll with hostname filter returns objects",
+			filter: DomainFilterInput{
+				Hostname: cutil.GetPtr("test1.com"),
+			},
+			expectedCnt:   2,
+			expectedError: false,
 		},
 		{
-			desc:               "GetAll with org filter returns objects",
-			hostname:           nil,
-			org:                db.GetStrPtr("testOrg2"),
-			controllerDomainID: nil,
-			expectedCnt:        2,
-			expectedError:      false,
+			desc: "GetAll with org filter returns objects",
+			filter: DomainFilterInput{
+				Org: cutil.GetPtr("testOrg2"),
+			},
+			expectedCnt:   2,
+			expectedError: false,
 		},
 		{
-			desc:               "GetAll with controllerDomainID filter returns objects",
-			hostname:           nil,
-			org:                nil,
-			controllerDomainID: &controllerDomainID,
-			expectedCnt:        3,
-			expectedError:      false,
+			desc: "GetAll with controllerDomainID filter returns objects",
+			filter: DomainFilterInput{
+				ControllerDomainID: &controllerDomainID,
+			},
+			expectedCnt:   3,
+			expectedError: false,
 		},
 		{
-			desc:               "GetAll with multiple filters returns objects",
-			hostname:           db.GetStrPtr("test1.com"),
-			org:                db.GetStrPtr("testOrg1"),
-			controllerDomainID: &controllerDomainID,
-			expectedCnt:        1,
-			expectedError:      false,
+			desc: "GetAll with multiple filters returns objects",
+			filter: DomainFilterInput{
+				Hostname:           cutil.GetPtr("test1.com"),
+				Org:                cutil.GetPtr("testOrg1"),
+				ControllerDomainID: &controllerDomainID,
+			},
+			expectedCnt:   1,
+			expectedError: false,
 		},
 		{
-			desc:               "GetAll with multiple filters returns no objects",
-			hostname:           db.GetStrPtr("notfound.com"),
-			org:                db.GetStrPtr("testOrg1"),
-			controllerDomainID: &controllerDomainID,
-			expectedCnt:        0,
-			expectedError:      false,
+			desc: "GetAll with multiple filters returns no objects",
+			filter: DomainFilterInput{
+				Hostname:           cutil.GetPtr("notfound.com"),
+				Org:                cutil.GetPtr("testOrg1"),
+				ControllerDomainID: &controllerDomainID,
+			},
+			expectedCnt:   0,
+			expectedError: false,
 		},
 		{
-			desc:               "GetAll with DomainStatusPending status returns objects",
-			hostname:           nil,
-			org:                nil,
-			controllerDomainID: nil,
-			expectedCnt:        3,
-			status:             db.GetStrPtr(DomainStatusPending),
-			expectedError:      false,
+			desc: "GetAll with DomainStatusPending status returns objects",
+			filter: DomainFilterInput{
+				Status: cutil.GetPtr(DomainStatusPending),
+			},
+			expectedCnt:   3,
+			expectedError: false,
 		},
 		{
-			desc:               "GetAll with DomainStatusError status returns no objects",
-			hostname:           nil,
-			org:                nil,
-			controllerDomainID: nil,
-			expectedCnt:        0,
-			status:             db.GetStrPtr(DomainStatusError),
-			expectedError:      false,
+			desc: "GetAll with DomainStatusError status returns no objects",
+			filter: DomainFilterInput{
+				Status: cutil.GetPtr(DomainStatusError),
+			},
+			expectedCnt:   0,
+			expectedError: false,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			tmp, err := dsd.GetAll(ctx, nil, tc.hostname, tc.org, tc.controllerDomainID, tc.status, nil)
+			tmp, err := dsd.GetAll(ctx, nil, tc.filter, nil)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if tc.expectedError {
 				assert.Equal(t, nil, tmp)
@@ -334,7 +368,7 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 	}
 }
 
-func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
+func TestDomainSQLDAO_Update(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testDomainInitDB(t)
 	defer dbSession.Close()
@@ -343,9 +377,21 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 	controllerDomainID := uuid.New()
 	updatedControllerDomainID := uuid.New()
 	dsd := NewDomainDAO(dbSession)
-	domain, err := dsd.CreateFromParams(ctx, nil, "test.com", "testOrg", &controllerDomainID, DomainStatusPending, user.ID)
+	domain, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test.com",
+		Org:                "testOrg",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
-	domain2, err := dsd.CreateFromParams(ctx, nil, "test2.com", "testOrg2", &controllerDomainID, DomainStatusPending, user.ID)
+	domain2, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test2.com",
+		Org:                "testOrg2",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 	tx1, err := db.BeginTx(context.Background(), dbSession, &sql.TxOptions{})
 	assert.Nil(t, err)
@@ -355,14 +401,9 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 
 	tests := []struct {
 		desc string
-		id   uuid.UUID
 
-		paramDomain             *Domain
-		paramHostname           *string
-		paramOrg                *string
-		paramControllerDomainID *uuid.UUID
-		paramStatus             *string
-
+		input                      DomainUpdateInput
+		paramDomain                *Domain
 		expectedError              bool
 		expectedHostname           *string
 		expectedOrg                *string
@@ -372,109 +413,104 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 		verifyChildSpanner         bool
 	}{
 		{
-			desc:                       "can update hostname",
-			id:                         domain.ID,
+			desc: "can update hostname",
+			input: DomainUpdateInput{
+				DomainID: domain.ID,
+				Hostname: cutil.GetPtr("updated.com"),
+			},
 			paramDomain:                domain,
-			paramHostname:              db.GetStrPtr("updated.com"),
-			paramOrg:                   nil,
-			paramControllerDomainID:    nil,
-			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
 			expectedOrg:                &domain.Org,
 			expectedControllerDomainID: domain.ControllerDomainID,
 			expectedStatus:             &domain.Status,
 			verifyChildSpanner:         true,
 		},
 		{
-			desc:                       "error when updating object doesnt exist",
-			id:                         uuid.New(),
+			desc: "error when updating object doesnt exist",
+			input: DomainUpdateInput{
+				DomainID: uuid.New(),
+				Hostname: cutil.GetPtr("updated.com"),
+			},
 			paramDomain:                domain,
-			paramHostname:              db.GetStrPtr("updated.com"),
-			paramOrg:                   nil,
-			paramControllerDomainID:    nil,
-			paramStatus:                nil,
 			expectedError:              true,
-			expectedHostname:           db.GetStrPtr("updated.com"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
 			expectedOrg:                &domain.Org,
 			expectedControllerDomainID: domain.ControllerDomainID,
 			expectedStatus:             &domain.Status,
 		},
 		{
-			desc:                       "can update org",
-			id:                         domain.ID,
+			desc: "can update org",
+			input: DomainUpdateInput{
+				DomainID: domain.ID,
+				Org:      cutil.GetPtr("updatedOrg"),
+			},
 			paramDomain:                domain,
-			paramHostname:              nil,
-			paramOrg:                   db.GetStrPtr("updatedOrg"),
-			paramControllerDomainID:    nil,
-			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: domain.ControllerDomainID,
 			expectedStatus:             &domain.Status,
 		},
 		{
-			desc:                       "can update controllerDomainID",
-			id:                         domain.ID,
+			desc: "can update controllerDomainID",
+			input: DomainUpdateInput{
+				DomainID:           domain.ID,
+				ControllerDomainID: &updatedControllerDomainID,
+			},
 			paramDomain:                domain,
-			paramHostname:              nil,
-			paramOrg:                   nil,
-			paramControllerDomainID:    &updatedControllerDomainID,
-			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
 			expectedStatus:             &domain.Status,
 		},
 		{
-			desc:                       "can update status",
-			id:                         domain.ID,
+			desc: "can update status",
+			input: DomainUpdateInput{
+				DomainID: domain.ID,
+				Status:   cutil.GetPtr(DomainStatusReady),
+			},
 			paramDomain:                domain,
-			paramHostname:              nil,
-			paramOrg:                   nil,
-			paramControllerDomainID:    nil,
-			paramStatus:                db.GetStrPtr(DomainStatusReady),
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
-			expectedStatus:             db.GetStrPtr(DomainStatusReady),
+			expectedStatus:             cutil.GetPtr(DomainStatusReady),
 		},
 		{
-			desc:                       "can update multiple fields",
-			id:                         domain2.ID,
+			desc: "can update multiple fields",
+			input: DomainUpdateInput{
+				DomainID:           domain2.ID,
+				Hostname:           cutil.GetPtr("updated.com"),
+				Org:                cutil.GetPtr("updatedOrg"),
+				ControllerDomainID: &updatedControllerDomainID,
+				Status:             cutil.GetPtr(DomainStatusReady),
+			},
 			paramDomain:                domain2,
-			paramHostname:              db.GetStrPtr("updated.com"),
-			paramOrg:                   db.GetStrPtr("updatedOrg"),
-			paramControllerDomainID:    &updatedControllerDomainID,
-			paramStatus:                db.GetStrPtr(DomainStatusReady),
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
-			expectedStatus:             db.GetStrPtr(DomainStatusReady),
+			expectedStatus:             cutil.GetPtr(DomainStatusReady),
 			tx:                         tx1,
 		},
 		{
-			desc:                       "noop when no fields are specified",
-			id:                         domain2.ID,
+			desc: "noop when no fields are specified",
+			input: DomainUpdateInput{
+				DomainID: domain2.ID,
+			},
 			paramDomain:                domain2,
-			paramHostname:              nil,
-			paramOrg:                   nil,
-			paramControllerDomainID:    nil,
-			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
-			expectedStatus:             db.GetStrPtr(DomainStatusReady),
+			expectedStatus:             cutil.GetPtr(DomainStatusReady),
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := dsd.UpdateFromParams(ctx, tc.tx, tc.id, tc.paramHostname, tc.paramOrg, tc.paramControllerDomainID, tc.paramStatus)
+			got, err := dsd.Update(ctx, tc.tx, tc.input)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if err == nil {
 				assert.NotNil(t, got)
@@ -506,7 +542,7 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 }
 
-func TestDomainSQLDAO_ClearFromParams(t *testing.T) {
+func TestDomainSQLDAO_Clear(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testDomainInitDB(t)
 	defer dbSession.Close()
@@ -514,9 +550,21 @@ func TestDomainSQLDAO_ClearFromParams(t *testing.T) {
 	user := testDomainBuildUser(t, dbSession, "testUser")
 	controllerDomainID := uuid.New()
 	dsd := NewDomainDAO(dbSession)
-	domain, err := dsd.CreateFromParams(ctx, nil, "test.com", "testOrg", &controllerDomainID, DomainStatusPending, user.ID)
+	domain, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test.com",
+		Org:                "testOrg",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
-	domain2, err := dsd.CreateFromParams(ctx, nil, "test.com", "testOrg", &controllerDomainID, DomainStatusPending, user.ID)
+	domain2, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test.com",
+		Org:                "testOrg",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 	tx1, err := db.BeginTx(context.Background(), dbSession, &sql.TxOptions{})
 	assert.Nil(t, err)
@@ -524,11 +572,13 @@ func TestDomainSQLDAO_ClearFromParams(t *testing.T) {
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
+	missingID := uuid.New()
+
 	tests := []struct {
 		desc   string
 		domain *Domain
+		input  DomainClearInput
 
-		paramControllerDomainID    bool
 		expectedUpdate             bool
 		expectedError              bool
 		expectedControllerDomainID *uuid.UUID
@@ -536,9 +586,12 @@ func TestDomainSQLDAO_ClearFromParams(t *testing.T) {
 		verifyChildSpanner         bool
 	}{
 		{
-			desc:                       "can clear controllerDomainID",
-			domain:                     domain,
-			paramControllerDomainID:    true,
+			desc:   "can clear controllerDomainID",
+			domain: domain,
+			input: DomainClearInput{
+				DomainID:           domain.ID,
+				ControllerDomainID: true,
+			},
 			expectedUpdate:             true,
 			expectedError:              false,
 			expectedControllerDomainID: nil,
@@ -546,32 +599,40 @@ func TestDomainSQLDAO_ClearFromParams(t *testing.T) {
 			verifyChildSpanner:         true,
 		},
 		{
-			desc:                       "can clear controllerDomainID when it is already nil",
-			domain:                     domain,
-			paramControllerDomainID:    true,
+			desc:   "can clear controllerDomainID when it is already nil",
+			domain: domain,
+			input: DomainClearInput{
+				DomainID:           domain.ID,
+				ControllerDomainID: true,
+			},
 			expectedUpdate:             true,
 			expectedError:              false,
 			expectedControllerDomainID: nil,
 		},
 		{
-			desc:                       "noop when nothing cleared",
-			domain:                     domain2,
-			paramControllerDomainID:    false,
+			desc:   "noop when nothing cleared",
+			domain: domain2,
+			input: DomainClearInput{
+				DomainID: domain2.ID,
+			},
 			expectedUpdate:             false,
 			expectedError:              false,
 			expectedControllerDomainID: domain2.ControllerDomainID,
 		},
 		{
-			desc:                       "error when updating object doesnt exist",
-			domain:                     &Domain{ID: uuid.New()},
-			paramControllerDomainID:    true,
+			desc:   "error when updating object doesnt exist",
+			domain: &Domain{ID: missingID},
+			input: DomainClearInput{
+				DomainID:           missingID,
+				ControllerDomainID: true,
+			},
 			expectedError:              true,
 			expectedControllerDomainID: nil,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := dsd.ClearFromParams(ctx, tc.tx, tc.domain.ID, tc.paramControllerDomainID)
+			got, err := dsd.Clear(ctx, tc.tx, tc.input)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if err == nil {
 				assert.NotNil(t, got)
@@ -597,7 +658,7 @@ func TestDomainSQLDAO_ClearFromParams(t *testing.T) {
 	}
 }
 
-func TestDomainSQLDAO_DeleteByID(t *testing.T) {
+func TestDomainSQLDAO_Delete(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testDomainInitDB(t)
 	defer dbSession.Close()
@@ -605,7 +666,13 @@ func TestDomainSQLDAO_DeleteByID(t *testing.T) {
 	user := testDomainBuildUser(t, dbSession, "testUser")
 	controllerDomainID := uuid.New()
 	dsd := NewDomainDAO(dbSession)
-	domain, err := dsd.CreateFromParams(ctx, nil, "test.com", "testOrg", &controllerDomainID, DomainStatusPending, user.ID)
+	domain, err := dsd.Create(ctx, nil, DomainCreateInput{
+		Hostname:           "test.com",
+		Org:                "testOrg",
+		ControllerDomainID: &controllerDomainID,
+		Status:             DomainStatusPending,
+		CreatedBy:          user.ID,
+	})
 	assert.Nil(t, err)
 	tx1, err := db.BeginTx(context.Background(), dbSession, &sql.TxOptions{})
 	assert.Nil(t, err)
@@ -635,7 +702,7 @@ func TestDomainSQLDAO_DeleteByID(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			err := dsd.DeleteByID(ctx, tc.tx, tc.id)
+			err := dsd.Delete(ctx, tc.tx, tc.id)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if !tc.expectedError {
 				tmp, err := dsd.GetByID(ctx, tc.tx, tc.id, nil)

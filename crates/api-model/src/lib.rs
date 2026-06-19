@@ -37,6 +37,7 @@ pub mod address_selection_strategy;
 pub mod allocation_type;
 pub mod attestation;
 pub mod bmc_info;
+pub mod bmc_redfish_session;
 pub mod component_manager;
 pub mod compute_allocation;
 pub mod controller_outcome;
@@ -62,6 +63,7 @@ pub mod instance;
 pub mod instance_address;
 pub mod instance_type;
 pub mod machine;
+pub mod machine_boot_interface;
 pub mod machine_boot_override;
 pub mod machine_interface;
 pub mod machine_interface_address;
@@ -92,9 +94,16 @@ pub mod state_history;
 pub mod storage;
 pub mod switch;
 pub mod tenant;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod trim_table;
 pub mod vpc;
 pub mod vpc_prefix;
+
+// Lets the database round-trip tests use `#[crate::sqlx_test]` to get a per-test
+// Postgres pool from the shared harness (DATABASE_URL via .envrc).
+#[cfg(test)]
+pub(crate) use carbide_macros::sqlx_test;
 
 /// Error that is returned when we validate various configurations that are obtained
 /// from Forge users.

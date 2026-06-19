@@ -17,12 +17,16 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
-use db::{ObjectColumnFilter, Transaction};
-use forge_secrets::credentials::{
+use carbide_rack::rms_node_type::compute_node_type_for_profile;
+use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_uuid::machine::MachineId;
+use db::{ObjectColumnFilter, Transaction};
+use itertools::Itertools;
 use librms::RmsApi;
+use librms::protos::rack_manager as rms;
+use mac_address::MacAddress;
 use model::bmc_info::BmcInfo;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
@@ -35,6 +39,7 @@ use model::machine::{
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
+use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use sqlx::{PgConnection, PgPool};
@@ -45,19 +50,23 @@ use crate::explored_endpoint_index::ExploredEndpointIndex;
 use crate::managed_host::ManagedHost;
 use crate::metrics::SiteExplorationMetrics;
 
+/// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
     database_connection: PgPool,
     config: SiteExplorerConfig,
     common_pools: Arc<CommonPools>,
+    rack_profiles: Arc<RackProfileConfig>,
     rms_client: Option<Arc<dyn RmsApi>>,
     credential_manager: Arc<dyn CredentialManager>,
 }
 
 impl MachineCreator {
+    /// Creates a machine creator with site configuration and optional RMS integration.
     pub fn new(
         database_connection: PgPool,
         config: SiteExplorerConfig,
         common_pools: Arc<CommonPools>,
+        rack_profiles: Arc<RackProfileConfig>,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
@@ -65,6 +74,7 @@ impl MachineCreator {
             database_connection,
             config,
             common_pools,
+            rack_profiles,
             rms_client,
             credential_manager,
         }
@@ -227,10 +237,12 @@ impl MachineCreator {
         )
         .await?;
 
+        let mut rack_profile_id = None;
         if let Some(rack_id) = machine_data.and_then(|d| d.rack_id.as_ref()) {
             tracing::info!(%rack_id, %host_machine_id, "Ensuring rack exists for host machine");
             if let Some(rack) = crate::ensure_rack_exists(&mut txn, rack_id).await? {
                 tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
+                rack_profile_id = rack.rack_profile_id;
             }
         }
 
@@ -239,40 +251,60 @@ impl MachineCreator {
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
             .await?;
 
-        txn.commit().await?;
-
-        if let (Some(rack_id), Some(rms_client)) =
+        let rms_node_type = if let (Some(rack_id), Some(_)) =
             (&expected_machine.data.rack_id, &self.rms_client)
         {
-            let request = librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest {
-                nodes: Some(librms::protos::rack_manager::NodeSet {
-                    devices: vec![librms::protos::rack_manager::NewNodeInfo {
+            let Some(rack_profile_id) = rack_profile_id.as_ref() else {
+                return Err(SiteExplorerError::InvalidArgument(format!(
+                    "rack {rack_id} has no rack_profile_id for RMS slot and tray lookup for host machine {host_machine_id}"
+                )));
+            };
+
+            let Some(rack_profile) = self.rack_profiles.get(rack_profile_id.as_str()) else {
+                return Err(SiteExplorerError::InvalidArgument(format!(
+                    "rack profile {rack_profile_id} is not configured for RMS slot and tray lookup for host machine {host_machine_id}"
+                )));
+            };
+
+            Some(
+                compute_node_type_for_profile(rack_profile)
+                    .map_err(|error| SiteExplorerError::InvalidArgument(error.to_string()))?,
+            )
+        } else {
+            None
+        };
+
+        txn.commit().await?;
+
+        if let (Some(rack_id), Some(rms_client), Some(node_type)) = (
+            &expected_machine.data.rack_id,
+            &self.rms_client,
+            rms_node_type,
+        ) {
+            let request = rms::BatchGetNodeDeviceInfoRequest {
+                nodes: Some(rms::NodeSet {
+                    nodes: vec![rms::NodeInfo {
                         node_id: host_machine_id.to_string(),
                         rack_id: rack_id.to_string(),
-                        r#type: Some(librms::protos::rack_manager::NodeType::Compute as i32),
-                        bmc_endpoint: Some(librms::protos::rack_manager::BmcEndpoint {
-                            interface: Some(librms::protos::rack_manager::NetworkInterface {
+                        r#type: Some(node_type as i32),
+                        bmc_endpoint: Some(rms::Endpoint {
+                            interface: Some(rms::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),
                                 mac_address: expected_machine.bmc_mac_address.to_string(),
                             }),
                             port: 443,
                             credentials: bmc_credentials.map(|(username, password)| {
-                                librms::protos::rack_manager::Credentials {
-                                    auth: Some(
-                                        librms::protos::rack_manager::credentials::Auth::UserPass(
-                                            librms::protos::rack_manager::UsernamePassword {
-                                                username,
-                                                password,
-                                            },
-                                        ),
-                                    ),
+                                rms::Credentials {
+                                    auth: Some(rms::credentials::Auth::UserPass(
+                                        rms::UsernamePassword { username, password },
+                                    )),
                                 }
                             }),
+                            dangerously_accept_invalid_certs: true,
                         }),
                         ..Default::default()
                     }],
                 }),
-                ..Default::default()
             };
             let (slot_number, tray_index) =
                 crate::fetch_slot_and_tray(rms_client.as_ref(), request).await;
@@ -308,7 +340,19 @@ impl MachineCreator {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
         // already.
-        let mac_addresses = report.all_mac_addresses();
+        let mac_addresses = host_mac_addresses_for_predicted_machine(report, machine_data);
+
+        // Resolve each MAC's Redfish interface id from the live report up
+        // front (`generate_machine_id` below takes a mutable borrow of the
+        // report that lives for the rest of this function).
+        let report_boot_interface_ids: Vec<(MacAddress, String)> = mac_addresses
+            .iter()
+            .filter_map(|mac| {
+                report
+                    .find_interface_id_for_mac(*mac)
+                    .map(|id| (*mac, id.to_string()))
+            })
+            .collect();
         for mac_address in &mac_addresses {
             if db::machine::find_by_mac_address(txn, mac_address)
                 .await?
@@ -374,9 +418,19 @@ impl MachineCreator {
         self.create_machine_from_explored_managed_host(txn, managed_host, machine_id, machine_data)
             .await?;
 
+        // Settle this host's single boot interface as we take ownership: the
+        // declared `ExpectedHostNic.primary` (if any) is the host's primary, and
+        // every other NIC is non-primary. Routing both the already-leased rows and
+        // the freshly-minted predictions through the same declaration makes the
+        // choice authoritative regardless of DHCP arrival order, and keeps exactly
+        // one primary per machine -- so adopting several NICs that leased before
+        // ingestion never trips the `one_primary_interface_per_machine` index.
+        let declared_primary = machine_data.and_then(|data| data.declared_primary_mac());
+
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
+            let is_declared_primary = declared_primary == Some(mac_address);
             if let Some(machine_interface) =
                 db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
@@ -399,7 +453,18 @@ impl MachineCreator {
                         id: mac_address.to_string(),
                     });
                 } else {
-                    // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran. Set it to the new machine ID.
+                    // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran.
+                    // Reconcile its primary flag to the declaration before adopting it: an anonymous
+                    // DHCP row defaults to primary=true, so without this two pre-ingestion leases
+                    // would both arrive primary and collide on association.
+                    if machine_interface.primary_interface != is_declared_primary {
+                        db::machine_interface::set_primary_interface(
+                            &machine_interface.id,
+                            is_declared_primary,
+                            txn,
+                        )
+                        .await?;
+                    }
                     tracing::info!(%mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
                     db::machine_interface::associate_interface_with_machine(
                         &machine_interface.id,
@@ -409,11 +474,25 @@ impl MachineCreator {
                     .await?;
                 }
             } else {
+                // Give the predicted interface its boot interface id when
+                // the live report resolves one, so the promoted row starts
+                // with the full boot pair. Retained ids are deliberately
+                // NOT copied here: a prediction has no recorded_at, so a
+                // copy would dodge the `retained_boot_interface_window`
+                // check. The retained pair instead lands on the row at
+                // creation (see `create_with_type`), where the window is
+                // checked at DHCP time.
+                let boot_interface_id = report_boot_interface_ids
+                    .iter()
+                    .find(|(mac, _)| *mac == mac_address)
+                    .map(|(_, id)| id.clone());
                 db::predicted_machine_interface::create(
                     NewPredictedMachineInterface {
                         machine_id,
                         mac_address,
                         expected_network_segment_type: NetworkSegmentType::HostInband,
+                        boot_interface_id,
+                        primary_interface: is_declared_primary,
                     },
                     txn,
                 )
@@ -582,6 +661,7 @@ impl MachineCreator {
                 txn,
                 Some(&dpu_hw_info),
                 explored_dpu.report.machine_id.as_ref().unwrap(),
+                self.config.retained_boot_interface_window,
             )
             .await?;
 
@@ -802,5 +882,34 @@ impl MachineCreator {
         .await?;
 
         Ok(predicted_machine_id)
+    }
+}
+
+/// Host inband MACs used when minting `predicted_machine_interface` rows for zero-DPU hosts.
+/// Prefers Redfish-reported System EthernetInterfaces; falls back to `ExpectedMachine.host_nics`
+/// when the BMC omits them from Redfish.
+fn host_mac_addresses_for_predicted_machine(
+    report: &EndpointExplorationReport,
+    machine_data: Option<&ExpectedMachineData>,
+) -> Vec<MacAddress> {
+    let from_redfish = report.all_mac_addresses();
+    match from_redfish.as_slice() {
+        [_, ..] => from_redfish,
+        [] => machine_data
+            .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
+            .map(|data| data.host_nics.as_slice())
+            .filter(|host_nics| !host_nics.is_empty())
+            .map(|host_nics| {
+                tracing::info!(
+                    host_nic_count = host_nics.len(),
+                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
+                );
+                host_nics
+                    .iter()
+                    .map(|nic| nic.mac_address)
+                    .dedup()
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }

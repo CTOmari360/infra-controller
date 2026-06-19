@@ -1,19 +1,6 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package model
 
 import (
@@ -27,11 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	dbtestutil "github.com/NVIDIA/infra-controller-rest/db/pkg/db/testutil"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/vendor"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/db/migrations"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/powershelf"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	dbtestutil "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/testutil"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/powershelf"
 )
 
 // skipIfNoDatabase skips the test if database environment is not configured
@@ -74,11 +62,11 @@ func parseMac(t *testing.T, s string) MacAddr {
 }
 
 // parseIP is a test helper that parses an IP address and converts to IPAddr
-func parseIP(t *testing.T, s string) IPAddr {
+func parseIP(t *testing.T, s string) sqltypes.IPAddr {
 	t.Helper()
 	ip := net.ParseIP(s)
 	require.NotNil(t, ip)
-	return IPAddr(ip)
+	return sqltypes.IPAddr(ip)
 }
 
 func TestIntegration_PMC_CreateAndGet(t *testing.T) {

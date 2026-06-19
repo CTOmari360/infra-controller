@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -25,34 +11,43 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/deviceinfo"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/utils"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/utils"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 type Component struct {
 	bun.BaseModel `bun:"table:component,alias:c"`
 
-	ID              uuid.UUID           `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Name            string              `bun:"name"`
-	Type            string              `bun:"type,type:varchar(16),default:'Compute'"`
-	Manufacturer    string              `bun:"manufacturer,notnull,unique:component_manufacturer_serial_idx"`
-	Model           string              `bun:"model"`
-	SerialNumber    string              `bun:"serial_number,notnull,notnull,unique:component_manufacturer_serial_idx"`
-	Description     map[string]any      `bun:"description,type:jsonb,json_use_number"`
-	FirmwareVersion string              `bun:"firmware_version,nullzero"`
-	RackID          uuid.UUID           `bun:"rack_id,type:uuid,notnull"`
-	SlotID          int                 `bun:"slot_id"`
-	TrayIndex       int                 `bun:"tray_index"`
-	HostID          int                 `bun:"host_id"`
-	IngestedAt      *time.Time          `bun:"ingested_at"`
-	DeletedAt       *time.Time          `bun:"deleted_at,soft_delete"`
-	Rack            *Rack               `bun:"rel:belongs-to,join:rack_id=id"`
-	BMCs            []BMC               `bun:"rel:has-many,join:id=component_id"`
-	ComponentID     *string             `bun:"external_id"`
-	PowerState      *nicoapi.PowerState `bun:"power_state"`
+	ID              uuid.UUID      `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
+	Name            string         `bun:"name"`
+	Type            string         `bun:"type,type:varchar(16),default:'Compute'"`
+	Manufacturer    string         `bun:"manufacturer,notnull,unique:component_manufacturer_serial_idx"`
+	Model           string         `bun:"model"`
+	SerialNumber    string         `bun:"serial_number,notnull,notnull,unique:component_manufacturer_serial_idx"`
+	Description     map[string]any `bun:"description,type:jsonb,json_use_number"`
+	FirmwareVersion string         `bun:"firmware_version,nullzero"`
+	// RackID is uuid.Nil when the component has been ingested but is not yet
+	// assigned to a rack. Stored as NULL in the database thanks to nullzero.
+	RackID      uuid.UUID                       `bun:"rack_id,type:uuid,nullzero"`
+	SlotID      int                             `bun:"slot_id"`
+	TrayIndex   int                             `bun:"tray_index"`
+	HostID      int                             `bun:"host_id"`
+	IngestedAt  *time.Time                      `bun:"ingested_at"`
+	UpdatedAt   time.Time                       `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
+	DeletedAt   *time.Time                      `bun:"deleted_at,soft_delete"`
+	Rack        *Rack                           `bun:"rel:belongs-to,join:rack_id=id"`
+	BMCs        []BMC                           `bun:"rel:has-many,join:id=component_id"`
+	ComponentID *string                         `bun:"external_id"`
+	PowerState  *nicoapi.PowerState             `bun:"power_state"`
+	Status      *types.ComponentOperationStatus `bun:"status,type:jsonb,nullzero"`
+	// LeakStatus is owned by the leak-detection loop. nullzero so an
+	// insert that leaves it empty falls back to the DB default 'UNKNOWN'
+	// rather than writing an empty string.
+	LeakStatus types.LeakStatus `bun:"leak_status,type:varchar(16),nullzero,notnull,default:'UNKNOWN'"`
 }
 
 func (cd *Component) Create(ctx context.Context, idb bun.IDB) error {
@@ -309,5 +304,34 @@ func (cd *Component) SetFirmwareVersionByComponentID(ctx context.Context, idb bu
 		return errors.New("component ID not set")
 	}
 	_, err := idb.NewUpdate().Model(cd).Set("firmware_version = ?", cd.FirmwareVersion).Where("external_id = ?", *cd.ComponentID).Exec(ctx)
+	return err
+}
+
+// SetLeakStatusByComponentID writes LeakStatus for the row identified by
+// external_id. Used by the leak-detection loop, which keys off the
+// component external IDs core reports leak alerts for.
+func (cd *Component) SetLeakStatusByComponentID(ctx context.Context, idb bun.IDB) error {
+	if cd.ComponentID == nil || *cd.ComponentID == "" {
+		return errors.New("component ID not set")
+	}
+	_, err := idb.NewUpdate().Model(cd).
+		Set("leak_status = ?", cd.LeakStatus).
+		Where("external_id = ?", *cd.ComponentID).
+		Exec(ctx)
+	return err
+}
+
+// SetStatusByComponentID writes Status for the row identified by external_id.
+func (cd *Component) SetStatusByComponentID(ctx context.Context, idb bun.IDB) error {
+	if cd.ComponentID == nil || *cd.ComponentID == "" {
+		return errors.New("component ID not set")
+	}
+	if cd.Status == nil {
+		return errors.New("status not set")
+	}
+	_, err := idb.NewUpdate().Model(cd).
+		Set("status = ?", cd.Status).
+		Where("external_id = ?", *cd.ComponentID).
+		Exec(ctx)
 	return err
 }

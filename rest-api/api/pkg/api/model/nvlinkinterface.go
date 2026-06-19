@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -23,8 +9,23 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationIs "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+)
+
+var (
+	// Time when nvLinklogicalPartitionId attribute will be deprecated
+	nvLinkLogicalPartitionIDDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+
+	// Deprecations for the NVLinkInterface model
+	nvLinkLogicalPartitionIDDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "nvLinklogicalPartitionId",
+			NewValue:     cutil.GetPtr("nvLinkLogicalPartitionId"),
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: nvLinkLogicalPartitionIDDeprecationTime,
+		},
+	}
 )
 
 // APINVLinkInterfaceCreateRequest is the data structure to capture user request to create a new NVLinkInterface
@@ -61,8 +62,10 @@ type APINVLinkInterface struct {
 	InstanceID string `json:"instanceId"`
 	// Instance is the summary of the Instance
 	Instance *APIInstanceSummary `json:"instance,omitempty"`
+	// NVLinkLogicalPartitionIDDeprecated is the ID of the associated NVLinkLogicalPartition (deprecated)
+	NVLinkLogicalPartitionIDDeprecated *string `json:"nvLinklogicalPartitionId,omitempty"`
 	// NVLinkLogicalPartitionID is the ID of the associated NVLinkLogicalPartition
-	NVLinkLogicalPartitionID string `json:"nvLinklogicalPartitionId"`
+	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionId"`
 	// NVLinkLogicalPartition is the summary of the NVLinkLogicalPartition
 	NVLinkLogicalPartition *APINVLinkLogicalPartitionSummary `json:"nvLinkLogicalPartition,omitempty"`
 	// NVLinkDomainID is the id of the physical NVLink domain that the interface is attached to
@@ -77,6 +80,8 @@ type APINVLinkInterface struct {
 	Created time.Time `json:"created"`
 	// Updated is the date and time the entity was last updated
 	Updated time.Time `json:"updated"`
+	// Deprecations is the list of deprecations for the NVLinkInterface
+	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
 }
 
 // NewAPINVLinkInterface creates a new APINVLinkInterface
@@ -96,7 +101,7 @@ func NewAPINVLinkInterface(dbnvli *cdbm.NVLinkInterface) *APINVLinkInterface {
 	}
 
 	if dbnvli.NVLinkDomainID != nil {
-		apiNVLinkInterface.NVLinkDomainID = cdb.GetStrPtr(dbnvli.NVLinkDomainID.String())
+		apiNVLinkInterface.NVLinkDomainID = cutil.GetPtr(dbnvli.NVLinkDomainID.String())
 	}
 
 	if dbnvli.GpuGUID != nil {
@@ -105,6 +110,14 @@ func NewAPINVLinkInterface(dbnvli *cdbm.NVLinkInterface) *APINVLinkInterface {
 
 	if dbnvli.NVLinkLogicalPartition != nil {
 		apiNVLinkInterface.NVLinkLogicalPartition = NewAPINVLinkLogicalPartitionSummary(dbnvli.NVLinkLogicalPartition)
+	}
+
+	if time.Now().Before(nvLinkLogicalPartitionIDDeprecationTime) {
+		apiNVLinkInterface.NVLinkLogicalPartitionIDDeprecated = cutil.GetPtr(dbnvli.NVLinkLogicalPartitionID.String())
+	}
+
+	for _, deprecation := range nvLinkLogicalPartitionIDDeprecations {
+		apiNVLinkInterface.Deprecations = append(apiNVLinkInterface.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return apiNVLinkInterface

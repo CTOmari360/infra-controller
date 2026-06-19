@@ -1,26 +1,12 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
 	"testing"
 
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -96,6 +82,8 @@ func TestNewAPIRack(t *testing.T) {
 							SlotId: 1,
 						},
 						ComponentId: "nico-machine-123",
+						Status:      &flowv1.ComponentOperationStatus{Phase: flowv1.Phase_PHASE_READY},
+						LeakStatus:  flowv1.LeakStatus_LEAK_STATUS_NOT_DETECTED,
 					},
 					{
 						Type: flowv1.ComponentType_COMPONENT_TYPE_TORSWITCH,
@@ -123,12 +111,16 @@ func TestNewAPIRack(t *testing.T) {
 						Manufacturer:    "NVIDIA",
 						FirmwareVersion: "1.0.0",
 						SlotID:          1,
+						OperationStatus: "Ready",
+						LeakStatus:      "NoLeak",
 					},
 					{
-						ID:     "comp-2",
-						Type:   "TORSwitch",
-						Name:   "switch-1",
-						SlotID: 48,
+						ID:              "comp-2",
+						Type:            "TORSwitch",
+						Name:            "switch-1",
+						SlotID:          48,
+						OperationStatus: "Unknown",
+						LeakStatus:      "Unknown",
 					},
 				},
 			},
@@ -197,6 +189,8 @@ func TestNewAPIRack(t *testing.T) {
 					assert.Equal(t, wantComp.Manufacturer, gotComp.Manufacturer)
 					assert.Equal(t, wantComp.FirmwareVersion, gotComp.FirmwareVersion)
 					assert.Equal(t, wantComp.SlotID, gotComp.SlotID)
+					assert.Equal(t, wantComp.OperationStatus, gotComp.OperationStatus)
+					assert.Equal(t, wantComp.LeakStatus, gotComp.LeakStatus)
 				}
 			} else {
 				assert.Nil(t, got.Components)

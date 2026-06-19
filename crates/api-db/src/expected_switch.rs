@@ -149,7 +149,7 @@ pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<Linke
   es.bmc_mac_address,
   s.id AS switch_id,
   es.expected_switch_id,
-  host(ee.address) AS address,
+  ee.address AS address,
   es.rack_id
  FROM expected_switches es
   LEFT JOIN switches s ON es.bmc_mac_address = s.bmc_mac_address
@@ -172,9 +172,21 @@ pub async fn find_one_linked(
   es.serial_number,
   es.bmc_mac_address,
   s.id AS switch_id,
-  es.expected_switch_id
+  es.expected_switch_id,
+  linked_endpoint.address AS address,
+  es.rack_id
  FROM expected_switches es
   LEFT JOIN switches s ON es.bmc_mac_address = s.bmc_mac_address
+  LEFT JOIN LATERAL (
+   SELECT ee.address
+   FROM machine_interfaces mi
+    JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
+    JOIN explored_endpoints ee ON mia.address = ee.address
+   WHERE mi.mac_address = es.bmc_mac_address
+   -- Keep this single-row lookup deterministic if a MAC has multiple explored addresses.
+   ORDER BY ee.address
+   LIMIT 1
+  ) linked_endpoint ON true
   ORDER BY es.bmc_mac_address
  LIMIT 1
  "#;
@@ -320,25 +332,33 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// update updates an existing expected switch. If expected_switch_id is set,
 /// matches by ID; otherwise matches by bmc_mac_address.
 pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> DatabaseResult<()> {
-    let (where_clause, target_id) = match switch.expected_switch_id {
-        Some(id) => ("expected_switch_id=$14::uuid", id.to_string()),
+    macro_rules! update_expected_switch_query {
+        ($where_clause:literal) => {
+            concat!(
+                "UPDATE expected_switches \
+                 SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
+                     metadata_name=$5, metadata_description=$6, metadata_labels=$7, \
+                     rack_id=$8, nvos_username=$9, nvos_password=$10, nvos_mac_addresses=$11::macaddr[], \
+                     bmc_retain_credentials=COALESCE($12, bmc_retain_credentials), \
+                     nvos_ip_address=$13::inet \
+                 WHERE ",
+                $where_clause,
+            )
+        };
+    }
+
+    let (query, target_id) = match switch.expected_switch_id {
+        Some(id) => (
+            update_expected_switch_query!("expected_switch_id=$14::uuid"),
+            id.to_string(),
+        ),
         None => (
-            "bmc_mac_address=$14::macaddr",
+            update_expected_switch_query!("bmc_mac_address=$14::macaddr"),
             switch.bmc_mac_address.to_string(),
         ),
     };
 
-    let query = format!(
-        "UPDATE expected_switches \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
-             metadata_name=$5, metadata_description=$6, metadata_labels=$7, \
-             rack_id=$8, nvos_username=$9, nvos_password=$10, nvos_mac_addresses=$11::macaddr[], \
-             bmc_retain_credentials=COALESCE($12, bmc_retain_credentials), \
-             nvos_ip_address=$13::inet \
-         WHERE {where_clause}"
-    );
-
-    let result = sqlx::query(&query)
+    let result = sqlx::query(query)
         .bind(&switch.bmc_username)
         .bind(&switch.bmc_password)
         .bind(&switch.serial_number)
@@ -355,7 +375,7 @@ pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> Database
         .bind(&target_id)
         .execute(&mut *txn)
         .await
-        .map_err(|err| DatabaseError::query(&query, err))?;
+        .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
         return Err(DatabaseError::NotFoundError {
@@ -392,3 +412,6 @@ pub async fn create_missing_from(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

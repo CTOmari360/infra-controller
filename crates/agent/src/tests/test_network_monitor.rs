@@ -52,7 +52,7 @@ struct State {
 
 #[tokio::test]
 pub async fn test_network_monitor() -> eyre::Result<()> {
-    carbide_host_support::init_logging()?;
+    carbide_host_support::init_logging("nico-dpu-agent")?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
 
@@ -166,10 +166,12 @@ async fn handle_get_dpu_info_list(
             rpc::DpuInfo {
                 id: DPU_ID.to_string(),
                 loopback_ip: "172.20.0.119".to_string(),
+                observed_status: None,
             },
             rpc::DpuInfo {
                 id: DEST_DPU_ID.to_string(),
                 loopback_ip: "172.20.0.200".to_string(),
+                observed_status: None,
             },
         ],
     })
