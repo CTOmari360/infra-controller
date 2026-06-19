@@ -252,11 +252,12 @@ impl SiteExplorationMetrics {
 
 /// Histogram bucket boundaries for site explorer duration metrics, in milliseconds.
 ///
-/// A full site explorer iteration can run for many minutes on large sites. The
-/// default OpenTelemetry histogram buckets top out at 10 seconds, which puts
-/// most production observations in the `+Inf` bucket.
+/// Keeps the default OpenTelemetry millisecond buckets through 10 seconds for
+/// sub-second endpoint exploration timings, then extends the upper range to one
+/// hour so full site explorer iterations are not collapsed into `+Inf`.
 const SITE_EXPLORER_DURATION_HISTOGRAM_BOUNDARIES_MS: &[f64] = &[
-    1_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0, 300_000.0, 600_000.0, 1_800_000.0,
+    0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 2_500.0, 5_000.0,
+    7_500.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0, 300_000.0, 600_000.0, 1_800_000.0,
     3_600_000.0,
 ];
 
@@ -768,12 +769,26 @@ mod tests {
 
     #[test]
     fn site_explorer_latency_histogram_views_build() {
-        site_explorer_latency_histogram_view("carbide_site_explorer_iteration_latency")
-            .expect("iteration latency view must build");
-        site_explorer_latency_histogram_view("*site_explorer*latency*")
-            .expect("site explorer latency glob view must build");
-        site_explorer_latency_histogram_view("carbide_endpoint_exploration_duration")
-            .expect("endpoint exploration duration view must build");
+        let cases = [
+            (
+                "carbide_site_explorer_iteration_latency",
+                "iteration latency",
+            ),
+            (
+                "carbide_site_explorer_*_latency",
+                "carbide site explorer latency glob",
+            ),
+            (
+                "carbide_endpoint_exploration_duration",
+                "endpoint exploration duration",
+            ),
+        ];
+
+        for (name_filter, label) in cases {
+            site_explorer_latency_histogram_view(name_filter).unwrap_or_else(|error| {
+                panic!("{label} view must build: {error}");
+            });
+        }
     }
 }
 
