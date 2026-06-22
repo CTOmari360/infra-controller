@@ -57,6 +57,7 @@ impl Default for MockEndpointExplorer {
             precondition_result: Arc::new(Mutex::new(Ok(()))),
             power_states: Arc::default(),
             redfish_power_control_calls: Arc::default(),
+            power_control_failures: Arc::default(),
             set_nic_mode_calls: Arc::default(),
             explore_endpoint_calls: Arc::default(),
         }
