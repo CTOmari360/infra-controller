@@ -271,7 +271,7 @@ func (sdd StatusDetailSQLDAO) Update(ctx context.Context, tx *db.Tx, input Statu
 
 	updatedFields = append(updatedFields, "updated")
 
-	_, err = db.GetIDB(tx, sdd.dbSession).NewUpdate().Model(upsd).Column(updatedFields...).Where("entity_id = ?", sd.EntityID).Exec(ctx)
+	_, err = db.GetIDB(tx, sdd.dbSession).NewUpdate().Model(upsd).Column(updatedFields...).Where("id = ?", sd.ID).Exec(ctx)
 	if err != nil {
 		return nil, err
 	}

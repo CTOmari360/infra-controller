@@ -2759,10 +2759,11 @@ func TestMachineHandler_Update(t *testing.T) {
 
 				// Check that new MachineInstanceType was created
 				if tt.args.reqInstanceType != nil {
-					emits, total, _ := mitDAO.GetAll(context.Background(), nil, cdbm.MachineInstanceTypeFilterInput{
+					emits, total, err := mitDAO.GetAll(context.Background(), nil, cdbm.MachineInstanceTypeFilterInput{
 						MachineID:       cutil.GetPtr(tt.args.reqMachine.ID),
 						InstanceTypeIDs: []uuid.UUID{tt.args.reqInstanceType.ID},
 					}, cdbp.PageInput{}, nil)
+					assert.Nil(t, err)
 					if tt.args.reqMachineInstanceTypeCount != nil {
 						assert.Equal(t, total, *tt.args.reqMachineInstanceTypeCount)
 						assert.Equal(t, emits[0].InstanceTypeID.String(), tt.args.reqInstanceType.ID.String())

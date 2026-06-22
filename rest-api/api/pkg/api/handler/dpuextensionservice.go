@@ -310,6 +310,8 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			statusDetail, serr := sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: dpuExtensionService.ID.String(), Status: cdbm.DpuExtensionServiceStatusReady, Message: cutil.GetPtr("DPU Extension Service is ready for deployment")})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
+			} else if statusDetail == nil {
+				logger.Error().Msg("Status detail not returned from Create call")
 			} else {
 				statusDetails = append(statusDetails, *statusDetail)
 			}
