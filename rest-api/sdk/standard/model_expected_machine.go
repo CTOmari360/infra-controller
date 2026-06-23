@@ -61,6 +61,8 @@ type ExpectedMachine struct {
 	HostId NullableInt32 `json:"hostId,omitempty"`
 	// User-defined key-value pairs for organizing and categorizing Expected Machines
 	Labels map[string]string `json:"labels,omitempty"`
+	// Optional per-host lifecycle profile
+	HostLifecycleProfile *HostLifecycleProfile `json:"hostLifecycleProfile,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was created
 	Created *time.Time `json:"created,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was last updated
@@ -813,6 +815,38 @@ func (o *ExpectedMachine) SetLabels(v map[string]string) {
 	o.Labels = v
 }
 
+// GetHostLifecycleProfile returns the HostLifecycleProfile field value if set, zero value otherwise.
+func (o *ExpectedMachine) GetHostLifecycleProfile() HostLifecycleProfile {
+	if o == nil || IsNil(o.HostLifecycleProfile) {
+		var ret HostLifecycleProfile
+		return ret
+	}
+	return *o.HostLifecycleProfile
+}
+
+// GetHostLifecycleProfileOk returns a tuple with the HostLifecycleProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ExpectedMachine) GetHostLifecycleProfileOk() (*HostLifecycleProfile, bool) {
+	if o == nil || IsNil(o.HostLifecycleProfile) {
+		return nil, false
+	}
+	return o.HostLifecycleProfile, true
+}
+
+// HasHostLifecycleProfile returns a boolean if a field has been set.
+func (o *ExpectedMachine) HasHostLifecycleProfile() bool {
+	if o != nil && !IsNil(o.HostLifecycleProfile) {
+		return true
+	}
+
+	return false
+}
+
+// SetHostLifecycleProfile gets a reference to the given HostLifecycleProfile and assigns it to the HostLifecycleProfile field.
+func (o *ExpectedMachine) SetHostLifecycleProfile(v HostLifecycleProfile) {
+	o.HostLifecycleProfile = &v
+}
+
 // GetCreated returns the Created field value if set, zero value otherwise.
 func (o *ExpectedMachine) GetCreated() time.Time {
 	if o == nil || IsNil(o.Created) {
@@ -943,6 +977,9 @@ func (o ExpectedMachine) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels
+	}
+	if !IsNil(o.HostLifecycleProfile) {
+		toSerialize["hostLifecycleProfile"] = o.HostLifecycleProfile
 	}
 	if !IsNil(o.Created) {
 		toSerialize["created"] = o.Created

@@ -21,6 +21,42 @@ const (
 	ExpectedMachineMaxBatchItems = 100
 )
 
+// APIHostLifecycleProfile captures per-host lifecycle settings that affect how
+// NICo progresses a host through its state machine.
+type APIHostLifecycleProfile struct {
+	// DisableLockdown, when true, skips locking down the server during host
+	// lifecycle management. When omitted, the existing value is preserved.
+	DisableLockdown *bool `json:"disableLockdown"`
+}
+
+// ToDBModel converts the API profile into its DB model form. A nil receiver
+// maps to the zero-value profile (no setting present).
+func (p *APIHostLifecycleProfile) ToDBModel() cdbm.HostLifecycleProfile {
+	if p == nil {
+		return cdbm.HostLifecycleProfile{}
+	}
+	return cdbm.HostLifecycleProfile{DisableLockdown: p.DisableLockdown}
+}
+
+// ToDBModelPtr converts the API profile into a DB model pointer, returning nil
+// for a nil receiver so update requests that omit the field leave it untouched.
+func (p *APIHostLifecycleProfile) ToDBModelPtr() *cdbm.HostLifecycleProfile {
+	if p == nil {
+		return nil
+	}
+	v := p.ToDBModel()
+	return &v
+}
+
+// NewAPIHostLifecycleProfile builds the API profile from its DB model form,
+// returning nil when no setting is present so the field is omitted in responses.
+func NewAPIHostLifecycleProfile(p cdbm.HostLifecycleProfile) *APIHostLifecycleProfile {
+	if p.DisableLockdown == nil {
+		return nil
+	}
+	return &APIHostLifecycleProfile{DisableLockdown: p.DisableLockdown}
+}
+
 // APIExpectedMachineCreateRequest is the data structure to capture instance request to create a new ExpectedMachine
 type APIExpectedMachineCreateRequest struct {
 	// SiteID is the ID of the Site
@@ -57,6 +93,8 @@ type APIExpectedMachineCreateRequest struct {
 	HostID *int32 `json:"hostId"`
 	// Labels is the labels of the expected machine
 	Labels map[string]string `json:"labels"`
+	// HostLifecycleProfile is the optional per-host lifecycle profile
+	HostLifecycleProfile *APIHostLifecycleProfile `json:"hostLifecycleProfile"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -140,6 +178,8 @@ type APIExpectedMachineUpdateRequest struct {
 	HostID *int32 `json:"hostId"`
 	// Labels is the labels of the expected machine
 	Labels map[string]string `json:"labels"`
+	// HostLifecycleProfile is the optional per-host lifecycle profile
+	HostLifecycleProfile *APIHostLifecycleProfile `json:"hostLifecycleProfile"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -248,6 +288,8 @@ type APIExpectedMachine struct {
 	HostID *int32 `json:"hostId"`
 	// Labels is the labels of the expected machine
 	Labels map[string]string `json:"labels"`
+	// HostLifecycleProfile is the optional per-host lifecycle profile
+	HostLifecycleProfile *APIHostLifecycleProfile `json:"hostLifecycleProfile,omitempty"`
 	// Created indicates the ISO datetime string for when the ExpectedMachine was created
 	Created time.Time `json:"created"`
 	// Updated indicates the ISO datetime string for when the ExpectedMachine was last updated
@@ -274,6 +316,7 @@ func NewAPIExpectedMachine(dibp *cdbm.ExpectedMachine) *APIExpectedMachine {
 		TrayIdx:                  dibp.TrayIdx,
 		HostID:                   dibp.HostID,
 		Labels:                   dibp.Labels,
+		HostLifecycleProfile:     NewAPIHostLifecycleProfile(dibp.HostLifecycleProfile),
 		Created:                  dibp.Created,
 		Updated:                  dibp.Updated,
 	}

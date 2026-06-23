@@ -116,6 +116,91 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 		assert.Nil(t, em.RackID)
 	})
+
+	t.Run("populates host_lifecycle_profile", func(t *testing.T) {
+		em := &ExpectedMachine{}
+		em.FromProto(&cwssaws.ExpectedMachine{
+			Id:                   &cwssaws.UUID{Value: id.String()},
+			BmcMacAddress:        "aa:bb",
+			HostLifecycleProfile: &cwssaws.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		}, nil)
+
+		if assert.NotNil(t, em.HostLifecycleProfile.DisableLockdown) {
+			assert.Equal(t, true, *em.HostLifecycleProfile.DisableLockdown)
+		}
+	})
+
+	t.Run("missing host_lifecycle_profile clears the field", func(t *testing.T) {
+		em := &ExpectedMachine{HostLifecycleProfile: HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}}
+		em.FromProto(&cwssaws.ExpectedMachine{
+			Id:            &cwssaws.UUID{Value: id.String()},
+			BmcMacAddress: "aa:bb",
+		}, nil)
+
+		assert.Nil(t, em.HostLifecycleProfile.DisableLockdown)
+	})
+}
+
+func TestHostLifecycleProfile_ToProto(t *testing.T) {
+	t.Run("unset profile maps to nil proto", func(t *testing.T) {
+		assert.Nil(t, HostLifecycleProfile{}.ToProto())
+	})
+
+	t.Run("disableLockdown true maps to populated proto", func(t *testing.T) {
+		got := HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}.ToProto()
+		if assert.NotNil(t, got) {
+			assert.Equal(t, true, got.GetDisableLockdown())
+		}
+	})
+
+	t.Run("disableLockdown false maps to populated proto", func(t *testing.T) {
+		got := HostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)}.ToProto()
+		if assert.NotNil(t, got) {
+			assert.NotNil(t, got.DisableLockdown)
+			assert.Equal(t, false, got.GetDisableLockdown())
+		}
+	})
+}
+
+func TestHostLifecycleProfile_FromProto(t *testing.T) {
+	t.Run("nil proto clears receiver", func(t *testing.T) {
+		h := HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}
+		h.FromProto(nil)
+		assert.Nil(t, h.DisableLockdown)
+	})
+
+	t.Run("populates disableLockdown", func(t *testing.T) {
+		h := HostLifecycleProfile{}
+		h.FromProto(&cwssaws.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)})
+		if assert.NotNil(t, h.DisableLockdown) {
+			assert.Equal(t, true, *h.DisableLockdown)
+		}
+	})
+}
+
+func TestExpectedMachine_ToProto_HostLifecycleProfile(t *testing.T) {
+	t.Run("sets host_lifecycle_profile when disableLockdown present", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                   uuid.New(),
+			BmcMacAddress:        "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber:  "CSN-1",
+			HostLifecycleProfile: HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		if assert.NotNil(t, proto.GetHostLifecycleProfile()) {
+			assert.Equal(t, true, proto.GetHostLifecycleProfile().GetDisableLockdown())
+		}
+	})
+
+	t.Run("leaves host_lifecycle_profile unset when no setting present", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                  uuid.New(),
+			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		assert.Nil(t, proto.GetHostLifecycleProfile())
+	})
 }
 
 // reset the tables needed for ExpectedMachine tests
@@ -1017,6 +1102,80 @@ func TestExpectedMachineSQLDAO_Update(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExpectedMachineSQLDAO_HostLifecycleProfile(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInitDB(t)
+	defer dbSession.Close()
+	testExpectedMachineSetupSchema(t, dbSession)
+
+	user := TestBuildUser(t, dbSession, "test-user", "test-org", []string{"admin"})
+	ip := TestBuildInfrastructureProvider(t, dbSession, "test-provider", "test-org", user)
+	site := TestBuildSite(t, dbSession, ip, "test-site", user)
+
+	emsd := NewExpectedMachineDAO(dbSession)
+	emID := uuid.New()
+
+	// Create with disable_lockdown = true and confirm it persists.
+	created, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:    emID,
+		SiteID:               site.ID,
+		BmcMacAddress:        "00:1B:44:11:3A:C0",
+		ChassisSerialNumber:  "CHASSIS-HLP",
+		HostLifecycleProfile: HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		CreatedBy:            user.ID,
+	})
+	assert.NoError(t, err)
+	if assert.NotNil(t, created.HostLifecycleProfile.DisableLockdown) {
+		assert.Equal(t, true, *created.HostLifecycleProfile.DisableLockdown)
+	}
+
+	got, err := emsd.Get(ctx, nil, emID, nil, false)
+	assert.NoError(t, err)
+	if assert.NotNil(t, got.HostLifecycleProfile.DisableLockdown) {
+		assert.Equal(t, true, *got.HostLifecycleProfile.DisableLockdown)
+	}
+
+	// Update disable_lockdown to false.
+	_, err = emsd.Update(ctx, nil, ExpectedMachineUpdateInput{
+		ExpectedMachineID:    emID,
+		HostLifecycleProfile: &HostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)},
+	})
+	assert.NoError(t, err)
+	got, err = emsd.Get(ctx, nil, emID, nil, false)
+	assert.NoError(t, err)
+	if assert.NotNil(t, got.HostLifecycleProfile.DisableLockdown) {
+		assert.Equal(t, false, *got.HostLifecycleProfile.DisableLockdown)
+	}
+
+	// Updating another field without the profile preserves the existing value.
+	_, err = emsd.Update(ctx, nil, ExpectedMachineUpdateInput{
+		ExpectedMachineID:   emID,
+		ChassisSerialNumber: cutil.GetPtr("CHASSIS-HLP-2"),
+	})
+	assert.NoError(t, err)
+	got, err = emsd.Get(ctx, nil, emID, nil, false)
+	assert.NoError(t, err)
+	if assert.NotNil(t, got.HostLifecycleProfile.DisableLockdown) {
+		assert.Equal(t, false, *got.HostLifecycleProfile.DisableLockdown)
+	}
+
+	// Creating without a profile persists the empty (unset) default.
+	em2ID := uuid.New()
+	em2, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:   em2ID,
+		SiteID:              site.ID,
+		BmcMacAddress:       "00:1B:44:11:3A:C1",
+		ChassisSerialNumber: "CHASSIS-HLP-DEFAULT",
+		CreatedBy:           user.ID,
+	})
+	assert.NoError(t, err)
+	assert.Nil(t, em2.HostLifecycleProfile.DisableLockdown)
+
+	got2, err := emsd.Get(ctx, nil, em2ID, nil, false)
+	assert.NoError(t, err)
+	assert.Nil(t, got2.HostLifecycleProfile.DisableLockdown)
 }
 
 func TestExpectedMachineSQLDAO_Clear(t *testing.T) {

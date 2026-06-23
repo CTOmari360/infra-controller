@@ -47,29 +47,59 @@ var (
 type ExpectedMachine struct {
 	bun.BaseModel `bun:"table:expected_machine,alias:em"`
 
-	ID                       uuid.UUID `bun:"id,pk"`
-	SiteID                   uuid.UUID `bun:"site_id,type:uuid,notnull"`
-	Site                     *Site     `bun:"rel:belongs-to,join:site_id=id"`
-	BmcMacAddress            string    `bun:"bmc_mac_address,notnull"`
-	ChassisSerialNumber      string    `bun:"chassis_serial_number,notnull"`
-	SkuID                    *string   `bun:"sku_id"`
-	Sku                      *SKU      `bun:"rel:belongs-to,join:sku_id=id"`
-	MachineID                *string   `bun:"machine_id"`
-	Machine                  *Machine  `bun:"rel:belongs-to,join:machine_id=id"`
-	FallbackDpuSerialNumbers []string  `bun:"fallback_dpu_serial_numbers,array"`
-	BmcIpAddress             *string   `bun:"bmc_ip_address"`
-	RackID                   *string   `bun:"rack_id"`
-	Name                     *string   `bun:"name"`
-	Manufacturer             *string   `bun:"manufacturer"`
-	Model                    *string   `bun:"model"`
-	Description              *string   `bun:"description"`
-	SlotID                   *int32    `bun:"slot_id"`
-	TrayIdx                  *int32    `bun:"tray_idx"`
-	HostID                   *int32    `bun:"host_id"`
-	Labels                   Labels    `bun:"labels,type:jsonb"`
-	Created                  time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated                  time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	CreatedBy                uuid.UUID `bun:"type:uuid,notnull"`
+	ID                       uuid.UUID            `bun:"id,pk"`
+	SiteID                   uuid.UUID            `bun:"site_id,type:uuid,notnull"`
+	Site                     *Site                `bun:"rel:belongs-to,join:site_id=id"`
+	BmcMacAddress            string               `bun:"bmc_mac_address,notnull"`
+	ChassisSerialNumber      string               `bun:"chassis_serial_number,notnull"`
+	SkuID                    *string              `bun:"sku_id"`
+	Sku                      *SKU                 `bun:"rel:belongs-to,join:sku_id=id"`
+	MachineID                *string              `bun:"machine_id"`
+	Machine                  *Machine             `bun:"rel:belongs-to,join:machine_id=id"`
+	FallbackDpuSerialNumbers []string             `bun:"fallback_dpu_serial_numbers,array"`
+	BmcIpAddress             *string              `bun:"bmc_ip_address"`
+	RackID                   *string              `bun:"rack_id"`
+	Name                     *string              `bun:"name"`
+	Manufacturer             *string              `bun:"manufacturer"`
+	Model                    *string              `bun:"model"`
+	Description              *string              `bun:"description"`
+	SlotID                   *int32               `bun:"slot_id"`
+	TrayIdx                  *int32               `bun:"tray_idx"`
+	HostID                   *int32               `bun:"host_id"`
+	Labels                   Labels               `bun:"labels,type:jsonb"`
+	HostLifecycleProfile     HostLifecycleProfile `bun:"host_lifecycle_profile,type:jsonb,notnull"`
+	Created                  time.Time            `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated                  time.Time            `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	CreatedBy                uuid.UUID            `bun:"type:uuid,notnull"`
+}
+
+// HostLifecycleProfile holds per-host lifecycle settings that affect how a host
+// progresses through its state machine. It is persisted alongside the
+// ExpectedMachine as JSONB and mirrored to Core via the workflow proto.
+type HostLifecycleProfile struct {
+	// DisableLockdown, when non-nil, controls whether the host is locked down
+	// during lifecycle management. A nil value means the setting is unset, so
+	// Core preserves its existing value (patch semantics).
+	DisableLockdown *bool `json:"disable_lockdown,omitempty"`
+}
+
+// ToProto returns the workflow proto for this profile, or nil when no setting
+// is present so the outer field stays unset and Core preserves its DB value.
+func (h HostLifecycleProfile) ToProto() *cwssaws.HostLifecycleProfile {
+	if h.DisableLockdown == nil {
+		return nil
+	}
+	return &cwssaws.HostLifecycleProfile{DisableLockdown: h.DisableLockdown}
+}
+
+// FromProto populates the receiver from a workflow proto profile. A nil proto
+// clears the receiver to its zero value.
+func (h *HostLifecycleProfile) FromProto(proto *cwssaws.HostLifecycleProfile) {
+	if proto == nil {
+		*h = HostLifecycleProfile{}
+		return
+	}
+	h.DisableLockdown = proto.DisableLockdown
 }
 
 // ExpectedMachineCredentials carries the BMC credentials for one
@@ -119,6 +149,7 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	if em.HostID != nil {
 		proto.HostId = em.HostID
 	}
+	proto.HostLifecycleProfile = em.HostLifecycleProfile.ToProto()
 
 	if creds.Username != nil {
 		proto.BmcUsername = *creds.Username
@@ -183,6 +214,7 @@ func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachi
 	em.TrayIdx = proto.TrayIdx
 	em.HostID = proto.HostId
 	em.Labels.FromProto(proto.Metadata.GetLabels())
+	em.HostLifecycleProfile.FromProto(proto.GetHostLifecycleProfile())
 }
 
 // ExpectedMachineCreateInput input parameters for Create method
@@ -204,6 +236,7 @@ type ExpectedMachineCreateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
+	HostLifecycleProfile     HostLifecycleProfile
 	CreatedBy                uuid.UUID
 }
 
@@ -225,6 +258,7 @@ type ExpectedMachineUpdateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
+	HostLifecycleProfile     *HostLifecycleProfile
 }
 
 // ExpectedMachineClearInput input parameters for Clear method
@@ -366,6 +400,7 @@ func (emsd ExpectedMachineSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx,
 			TrayIdx:                  input.TrayIdx,
 			HostID:                   input.HostID,
 			Labels:                   input.Labels,
+			HostLifecycleProfile:     input.HostLifecycleProfile,
 			CreatedBy:                input.CreatedBy,
 		}
 		expectedMachines = append(expectedMachines, em)
@@ -662,6 +697,10 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		if input.HostID != nil {
 			em.HostID = input.HostID
 			columnsSet["host_id"] = true
+		}
+		if input.HostLifecycleProfile != nil {
+			em.HostLifecycleProfile = *input.HostLifecycleProfile
+			columnsSet["host_lifecycle_profile"] = true
 		}
 
 		expectedMachines = append(expectedMachines, em)
