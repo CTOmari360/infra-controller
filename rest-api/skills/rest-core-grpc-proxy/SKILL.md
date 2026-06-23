@@ -1,3 +1,8 @@
+---
+name: rest-core-grpc-proxy
+description: Build or migrate infra-controller REST API endpoints that call on-site NICo Core through the generic Core gRPC proxy. Use when working on REST-to-Core operations, ExecuteCoreGRPC, coreproxy, forge.Forge methods, creating new proxied REST endpoints, or migrating bespoke workflows to the gRPC proxy.
+---
+
 # REST Core gRPC Proxy Skill
 
 Use this guidance when building or converting `infra-controller` REST API endpoints that need to call on-site NICo Core through the generic Core gRPC proxy.

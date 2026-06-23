@@ -196,7 +196,7 @@ verification expectations.
 
 When building or converting a REST endpoint that calls on-site NICo Core through
 the generic gRPC proxy, follow
-[`docs/rest-core-grpc-proxy-skill.md`](docs/rest-core-grpc-proxy-skill.md).
+[`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
 
 ### Prefer range-based iteration over C-style `for` loops
 
