@@ -893,16 +893,16 @@ pub(crate) async fn invoke_power(
         log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
     }
 
-    let bmc_ip =
-        snapshot
-            .host_snapshot
-            .bmc_info
-            .ip
-            .as_ref()
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "bmc_ip",
-                id: machine_id.to_string(),
-            })?;
+    let bmc_ip = snapshot
+        .host_snapshot
+        .status
+        .bmc_info
+        .ip
+        .as_ref()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "bmc_ip",
+            id: machine_id.to_string(),
+        })?;
 
     let run_provisioning_instructions_on_every_boot = snapshot
         .instance
@@ -1030,6 +1030,7 @@ pub(crate) async fn invoke_power(
     let bmc_mac_address =
         snapshot
             .host_snapshot
+            .status
             .bmc_info
             .mac
             .ok_or_else(|| CarbideError::NotFoundError {
@@ -1045,7 +1046,7 @@ pub(crate) async fn invoke_power(
         .redfish_pool
         .create_client(
             &bmc_ip,
-            snapshot.host_snapshot.bmc_info.port,
+            snapshot.host_snapshot.status.bmc_info.port,
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),

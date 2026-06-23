@@ -137,7 +137,7 @@ pub(crate) async fn handle_machine_validation_state(
             }
             // Host validation completed
             if machine_validation_completed(&mh_snapshot.host_snapshot) {
-                if mh_snapshot.host_snapshot.failure_details.cause == FailureCause::NoError {
+                if mh_snapshot.host_snapshot.status.failure_details.cause == FailureCause::NoError {
                     tracing::info!(
                         "{} machine validation completed",
                         mh_snapshot.host_snapshot.id
@@ -166,7 +166,7 @@ pub(crate) async fn handle_machine_validation_state(
                 } else {
                     tracing::info!("{} machine validation failed", mh_snapshot.host_snapshot.id);
                     return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-                        details: mh_snapshot.host_snapshot.failure_details.clone(),
+                        details: mh_snapshot.host_snapshot.status.failure_details.clone(),
                         machine_id: mh_snapshot.host_snapshot.id,
                         retry_count: 0,
                     }));

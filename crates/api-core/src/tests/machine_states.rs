@@ -309,10 +309,17 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
 
-    assert!(!mh.host().db_machine(&mut txn).await.dpf.used_for_ingestion);
+    assert!(
+        !mh.host()
+            .db_machine(&mut txn)
+            .await
+            .config
+            .dpf
+            .used_for_ingestion
+    );
     for i in 0..mh.dpu_ids.len() {
         let dpu = mh.dpu_n(i).db_machine(&mut txn).await;
-        assert!(!dpu.dpf.used_for_ingestion);
+        assert!(!dpu.config.dpf.used_for_ingestion);
     }
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
@@ -551,15 +558,25 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         dpu_machine.current_state(),
     );
     assert_eq!(
-        dpu_machine.hardware_info.as_ref().unwrap().machine_type,
+        dpu_machine
+            .status
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .machine_type,
         CpuArchitecture::Aarch64,
     );
-    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_ip));
+    assert_eq!(dpu_machine.status.bmc_info.ip, Some(dpu_bmc_ip));
 
     assert_eq!(
         format!(
             "BF-{}",
-            dpu_machine.bmc_info.firmware_version.clone().unwrap()
+            dpu_machine
+                .status
+                .bmc_info
+                .firmware_version
+                .clone()
+                .unwrap()
         ),
         InitialDpuConfig::default()
             .find_bf3_entry()
@@ -568,6 +585,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -579,6 +597,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -590,6 +609,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -612,7 +632,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         "expected DpuDiscoveringState, got {:?}",
         host_machine.current_state(),
     );
-    assert!(host_machine.bmc_info.ip.is_some());
+    assert!(host_machine.status.bmc_info.ip.is_some());
     txn.commit().await.unwrap();
 
     // 2nd creation does nothing.
@@ -1147,7 +1167,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         &env.pool,
         &host,
         1,
-        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+        Some(host.status.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
     )
     .await;
     // let state machine check the failure condition.
@@ -1282,10 +1302,10 @@ async fn test_repeated_initial_discovery_cleanup_failure_preserves_host_init_sou
         }
     ));
     assert!(matches!(
-        host.failure_details.source,
+        host.status.failure_details.source,
         FailureSource::StateMachineArea(StateMachineArea::HostInit)
     ));
-    let first_failed_at = host.failure_details.failed_at;
+    let first_failed_at = host.status.failure_details.failed_at;
     txn.commit().await.unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -1298,11 +1318,11 @@ async fn test_repeated_initial_discovery_cleanup_failure_preserves_host_init_sou
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
-        host.failure_details.source,
+        host.status.failure_details.source,
         FailureSource::StateMachineArea(StateMachineArea::HostInit)
     ));
     assert!(
-        host.failure_details.failed_at > first_failed_at,
+        host.status.failure_details.failed_at > first_failed_at,
         "repeated cleanup failure should refresh failure details"
     );
     txn.commit().await.unwrap();
@@ -1362,7 +1382,7 @@ async fn test_hdd_clean_failed_state_host(pool: sqlx::PgPool) {
         &env.pool,
         &host,
         1,
-        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+        Some(host.status.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
     )
     .await;
     // let state machine check the failure condition.
@@ -1559,7 +1579,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
             product: None,
-            client_ip: Some(host.interfaces[0].addresses[0].to_string()),
+            client_ip: Some(host.status.interfaces[0].addresses[0].to_string()),
             ..Default::default()
         }))
         .await
@@ -1592,8 +1612,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
-    assert!(host.last_reboot_requested.is_some());
-    let last_reboot_requested_time = host.last_reboot_requested.as_ref().unwrap().time;
+    assert!(host.status.last_reboot_requested.is_some());
+    let last_reboot_requested_time = host.status.last_reboot_requested.as_ref().unwrap().time;
 
     assert!(matches!(
         host.current_state(),
@@ -1657,7 +1677,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     assert_ne!(
         last_reboot_requested_time,
-        host.last_reboot_requested.as_ref().unwrap().time
+        host.status.last_reboot_requested.as_ref().unwrap().time
     );
     txn.commit().await.unwrap();
 
@@ -2518,7 +2538,7 @@ async fn test_forge_agent_control_assigned_discovery_boot_does_not_reset_without
 
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
-    assert!(host.last_cleanup_time.is_none());
+    assert!(host.status.last_cleanup_time.is_none());
     txn.commit().await.unwrap();
 
     let response = mh.host().forge_agent_control().await;
@@ -2571,11 +2591,13 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         assert_ne!(
             snapshot.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .map(|x| x.time)
                 .unwrap_or_default(),
             snapshot1.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .unwrap()
                 .time
@@ -2603,11 +2625,13 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         assert_ne!(
             snapshot1.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .map(|x| x.time)
                 .unwrap_or_default(),
             snapshot2.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .unwrap()
                 .time
@@ -2640,11 +2664,13 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         assert_eq!(
             snapshot2.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .map(|x| x.time)
                 .unwrap_or_default(),
             snapshot3.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .unwrap()
                 .time
@@ -2853,7 +2879,7 @@ async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds
                 },
             }
         ) {
-            if host.last_reboot_requested.is_some() {
+            if host.status.last_reboot_requested.is_some() {
                 update_time_params(&env.pool, &host, 1, None).await;
             }
             mh.network_configured(&env).await;

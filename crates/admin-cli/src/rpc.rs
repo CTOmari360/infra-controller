@@ -1276,6 +1276,7 @@ impl ApiClient {
     }
 
     /// Build an InstanceAllocationRequest from CLI args and machine info.
+    #[allow(deprecated)]
     pub async fn build_instance_request(
         &self,
         machine: Machine,

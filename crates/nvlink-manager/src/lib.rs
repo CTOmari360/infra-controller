@@ -72,7 +72,7 @@ fn rack_id_from_chassis_snapshots(
 ) -> Option<RackId> {
     chassis_snapshots
         .iter()
-        .find_map(|snapshot| snapshot.host_snapshot.rack_id.clone())
+        .find_map(|snapshot| snapshot.host_snapshot.config.rack_id.clone())
 }
 
 fn domain_uuid_from_nmx_c_hello(
@@ -131,7 +131,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 
     if let Some(snapshot_info) =
-        snapshot.and_then(|snapshot| snapshot.host_snapshot.nvlink_info.as_ref())
+        snapshot.and_then(|snapshot| snapshot.host_snapshot.status.nvlink_info.as_ref())
     {
         return MachineNvLinkInfo {
             domain_uuid,
@@ -145,7 +145,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 
     let gpus = snapshot
-        .and_then(|snapshot| snapshot.host_snapshot.hardware_info.as_ref())
+        .and_then(|snapshot| snapshot.host_snapshot.status.hardware_info.as_ref())
         .map(nvlink_gpus_from_hardware_info)
         .unwrap_or_default();
 
@@ -156,7 +156,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 }
 
-/// Populates missing `machines.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
+/// Populates missing `machines.status.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
 fn populate_machine_nvlink_info_if_needed(
     machine_nvlink_info: &mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
     managed_host_snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -1029,7 +1029,7 @@ impl NvlPartitionMonitor {
         > = managed_host_snapshots.iter().fold(
             HashMap::new(),
             |mut acc, (_machine_id, snapshot)| {
-                if let Some(nvlink_info) = snapshot.host_snapshot.nvlink_info.as_ref() {
+                if let Some(nvlink_info) = snapshot.host_snapshot.status.nvlink_info.as_ref() {
                     let serial = nvlink_info.chassis_serial.trim();
                     if !serial.is_empty() {
                         acc.entry(serial.to_string()).or_default().push(snapshot);
@@ -1184,7 +1184,7 @@ impl NvlPartitionMonitor {
                 );
                 for (machine_id, nvlink_info) in &nvlink_info_db_updates {
                     if let Some(snapshot) = managed_host_snapshots_domain.get_mut(machine_id) {
-                        snapshot.host_snapshot.nvlink_info = Some(nvlink_info.clone());
+                        snapshot.host_snapshot.status.nvlink_info = Some(nvlink_info.clone());
                     }
                 }
             }
@@ -1741,7 +1741,7 @@ impl NvlPartitionMonitor {
             return Ok(());
         }
 
-        if let Some(nvlink_info) = &mh.host_snapshot.nvlink_info {
+        if let Some(nvlink_info) = &mh.host_snapshot.status.nvlink_info {
             for gpu in &nvlink_info.gpus {
                 let nmxc_partition = match partition_ctx.gpu_to_partition_map.get(&gpu.guid) {
                     // GPU is in a partition, so we need to remove it from the partition.

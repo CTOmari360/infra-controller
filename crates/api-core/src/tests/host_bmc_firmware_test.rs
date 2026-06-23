@@ -544,10 +544,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.status.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -555,7 +557,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .versions
         .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
     db::explored_endpoints::try_update(
-        host.bmc_info.ip_addr().unwrap(),
+        host.status.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         false,
@@ -665,9 +667,11 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // "Site explorer" pass to indicate that we're at the desired version
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await?;
+    let endpoints = db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.status.bmc_info.ip_addr().unwrap()],
+    )
+    .await?;
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
@@ -675,7 +679,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
     db::explored_endpoints::try_update(
-        host.bmc_info.ip_addr().unwrap(),
+        host.status.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         false,
@@ -742,7 +746,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared or we'd right back in
-    assert!(host.update_complete);
+    assert!(host.status.update_complete);
     let reqs = db::host_machine_update::find_upgrade_needed(&mut txn, true, false).await?;
     assert!(reqs.is_empty());
     txn.commit().await.unwrap();
@@ -762,11 +766,12 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
 
     // Validate update_firmware_version_by_machine_id behavior
     assert_eq!(
-        host.bmc_info.firmware_version,
+        host.status.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())
     );
     assert_eq!(
-        host.hardware_info
+        host.status
+            .hardware_info
             .as_ref()
             .unwrap()
             .dmi_data
@@ -1490,10 +1495,12 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.status.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
@@ -1501,7 +1508,7 @@ async fn test_instance_upgrading_actual_part_2(
         .versions
         .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
     db::explored_endpoints::try_update(
-        host.bmc_info.ip_addr().unwrap(),
+        host.status.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         false,
@@ -1695,10 +1702,12 @@ async fn test_instance_upgrading_actual_part_2(
     );
 
     // "Site explorer" pass to indicate that we're at the desired version
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.status.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
@@ -1706,7 +1715,7 @@ async fn test_instance_upgrading_actual_part_2(
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
     db::explored_endpoints::try_update(
-        host.bmc_info.ip_addr().unwrap(),
+        host.status.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         false,
@@ -1873,11 +1882,12 @@ async fn test_instance_upgrading_actual_part_2(
 
     // Validate update_firmware_version_by_machine_id behavior
     assert_eq!(
-        host.bmc_info.firmware_version,
+        host.status.bmc_info.firmware_version,
         Some("6.00.30.00".to_string())
     );
     assert_eq!(
-        host.hardware_info
+        host.status
+            .hardware_info
             .as_ref()
             .unwrap()
             .dmi_data
@@ -3064,10 +3074,12 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
     env.run_machine_state_controller_iteration().await;
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.status.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
@@ -3080,7 +3092,7 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
     db::explored_endpoints::try_update(
-        host.bmc_info.ip_addr().unwrap(),
+        host.status.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
         false,
@@ -3170,7 +3182,7 @@ async fn test_forge_agent_control_waiting_for_scout_upgrade_returns_task_without
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
-    assert!(host.last_cleanup_time.is_none());
+    assert!(host.status.last_cleanup_time.is_none());
     txn.commit().await.unwrap();
 
     let response = env

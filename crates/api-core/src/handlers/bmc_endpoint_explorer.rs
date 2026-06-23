@@ -594,6 +594,7 @@ pub(crate) async fn admin_power_control(
 
             if let Some(power_state) = snapshot
                 .host_snapshot
+                .status
                 .power_options
                 .map(|x| x.desired_power_state)
                 && power_state == model::power_manager::PowerState::On
@@ -1091,13 +1092,13 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                     id: machine_id.to_string(),
                 })?;
 
-            let bmc_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
+            let bmc_ip = machine.status.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!(
                     "Machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 
-            let bmc_mac_address = machine.bmc_info.mac.ok_or_else(|| {
+            let bmc_mac_address = machine.status.bmc_info.mac.ok_or_else(|| {
                 CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 

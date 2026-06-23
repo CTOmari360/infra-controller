@@ -52,14 +52,26 @@ impl From<TestManagedHost> for (MachineId, MachineId) {
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl TestManagedHost {
+    #[allow(deprecated)]
     pub fn from_rpc_machine(m: &rpc::Machine, api: Arc<Api>) -> Self {
         TestManagedHost {
             id: m.id.unwrap(),
             dpu_ids: m
-                .interfaces
-                .iter()
-                .filter_map(|i| i.attached_dpu_machine_id)
-                .collect(),
+                .status
+                .as_ref()
+                .map(|s| {
+                    s.interfaces
+                        .iter()
+                        .filter_map(|i| i.attached_dpu_machine_id)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|ids| !ids.is_empty())
+                .unwrap_or_else(|| {
+                    m.interfaces
+                        .iter()
+                        .filter_map(|i| i.attached_dpu_machine_id)
+                        .collect()
+                }),
             api,
         }
     }

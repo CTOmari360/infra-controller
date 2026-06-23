@@ -473,11 +473,17 @@ async fn test_machine_creator_creates_managed_host(
         dpu_machine.current_state(),
     );
     assert_eq!(
-        dpu_machine.hardware_info.as_ref().unwrap().machine_type,
+        dpu_machine
+            .status
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .machine_type,
         CpuArchitecture::Aarch64,
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -489,6 +495,7 @@ async fn test_machine_creator_creates_managed_host(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -500,6 +507,7 @@ async fn test_machine_creator_creates_managed_host(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -523,7 +531,7 @@ async fn test_machine_creator_creates_managed_host(
         "expected DpuDiscoveringState, got {:?}",
         host_machine.current_state(),
     );
-    assert!(host_machine.bmc_info.ip.is_some());
+    assert!(host_machine.status.bmc_info.ip.is_some());
 
     // 2nd creation does nothing.
     assert!(
@@ -721,7 +729,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
             txn.commit().await?;
         }
         let hm = host_machine.clone().unwrap();
-        assert!(hm.bmc_info.ip.is_some());
+        assert!(hm.status.bmc_info.ip.is_some());
         if host_machine_id.is_none() {
             host_machine_id = Some(hm.id);
         }
@@ -994,10 +1002,10 @@ async fn test_machine_creator_creates_managed_host_with_dpf_disabled(
     for machine in machines {
         if machine.is_dpu() {
             // DPU has no expected-machine entry, so it always defaults to `true`.
-            assert!(machine.dpf.enabled);
+            assert!(machine.config.dpf.enabled);
         } else {
             // Host has expected-machine entry with `dpf_enabled: Some(false)`.
-            assert!(!machine.dpf.enabled);
+            assert!(!machine.config.dpf.enabled);
         }
     }
 
@@ -1044,7 +1052,7 @@ async fn test_machine_creator_creates_managed_host_with_dpf_enabled(
 
     assert_eq!(machines.len(), 2);
     for machine in machines {
-        assert!(machine.dpf.enabled);
+        assert!(machine.config.dpf.enabled);
     }
 
     Ok(())

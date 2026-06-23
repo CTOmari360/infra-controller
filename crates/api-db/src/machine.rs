@@ -2750,7 +2750,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
-        assert!(host.firmware_autoupdate.is_some());
+        assert_eq!(host.config.firmware_autoupdate, Some(true));
 
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
@@ -2759,7 +2759,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
-        assert!(host.firmware_autoupdate.is_none());
+        assert!(host.config.firmware_autoupdate.is_none());
         Ok(())
     }
 }

@@ -46,6 +46,9 @@ pub struct MockHost {
     pub bmc_password: String,
 }
 
+// The deprecated flat fields on `forge::Machine` must still be set here for backwards-compat
+// until the mock server is updated to use the new config/status sub-messages.
+#[allow(deprecated)]
 impl From<MockHost> for forge::Machine {
     fn from(value: MockHost) -> Self {
         Self {

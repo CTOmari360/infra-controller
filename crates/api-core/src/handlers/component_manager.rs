@@ -571,7 +571,7 @@ async fn group_machine_ids_by_rack(
         let machine = machines_by_id
             .get(machine_id)
             .ok_or_else(|| Status::not_found(format!("machine {machine_id} not found")))?;
-        let rack_id = machine.rack_id.clone().ok_or_else(|| {
+        let rack_id = machine.config.rack_id.clone().ok_or_else(|| {
             Status::failed_precondition(format!(
                 "machine {machine_id} is not associated with a rack"
             ))
@@ -585,6 +585,7 @@ async fn group_machine_ids_by_rack(
 /// Returns whether the machine is a rack-scale server (today just GB200, but will later include other SKUs)
 fn is_rack_scale_server(machine: &Machine) -> bool {
     machine
+        .status
         .hardware_info
         .as_ref()
         .is_some_and(|hw| hw.is_gbx00())
@@ -1126,7 +1127,7 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let Some(bmc_mac) = machine.bmc_info.mac else {
+        let Some(bmc_mac) = machine.status.bmc_info.mac else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "BMC MAC not available".into(),
@@ -1134,7 +1135,7 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let Some(bmc_ip) = machine.bmc_info.ip else {
+        let Some(bmc_ip) = machine.status.bmc_info.ip else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "BMC IP not configured".into(),

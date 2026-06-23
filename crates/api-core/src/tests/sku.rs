@@ -361,9 +361,9 @@ pub mod tests {
         .unwrap();
 
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
-        assert!(machine.hw_sku.is_some());
+        assert!(machine.config.hw_sku.is_some());
 
-        let new_sku = db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
+        let new_sku = db::sku::find(&mut txn, &[machine.config.hw_sku.unwrap()])
             .await?
             .pop()
             .unwrap();
@@ -513,7 +513,7 @@ pub mod tests {
         .await?
         .pop()
         .unwrap();
-        assert_eq!(machine.hw_sku.unwrap(), actual_sku.id);
+        assert_eq!(machine.config.hw_sku.unwrap(), actual_sku.id);
 
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
@@ -526,7 +526,7 @@ pub mod tests {
         .pop()
         .unwrap();
 
-        assert!(machine.hw_sku.is_none());
+        assert!(machine.config.hw_sku.is_none());
 
         let sku_id = actual_sku.id.clone();
         db::sku::delete(&mut txn, &actual_sku.id).await?;
@@ -572,7 +572,7 @@ pub mod tests {
 
         // Machine should reach Ready state (test fixture generates and assigns SKU)
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
-        assert!(machine.hw_sku.is_some());
+        assert!(machine.config.hw_sku.is_some());
 
         Ok(())
     }
@@ -612,7 +612,7 @@ pub mod tests {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(_)
             }
         ));
-        assert!(machine.hw_sku.is_none());
+        assert!(machine.config.hw_sku.is_none());
 
         Ok(())
     }
@@ -746,7 +746,7 @@ pub mod tests {
             ),
             "Machine should be stuck in WaitingForSkuAssignment"
         );
-        assert!(machine.hw_sku.is_none());
+        assert!(machine.config.hw_sku.is_none());
         txn.commit().await?;
 
         Ok(())
@@ -1279,7 +1279,7 @@ pub mod tests {
         let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
-        let original_sku = db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
+        let original_sku = db::sku::find(&mut txn, &[machine.config.hw_sku.clone().unwrap()])
             .await?
             .pop()
             .unwrap();
@@ -1399,7 +1399,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
-        let current_sku_id = machine.hw_sku.clone().unwrap();
+        let current_sku_id = machine.config.hw_sku.clone().unwrap();
 
         // Assign a mismatched SKU
         assign_mismatched_sku(&mut txn, &machine_id, &current_sku_id).await?;
@@ -1447,7 +1447,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
-        let current_sku_id = machine.hw_sku.clone().unwrap();
+        let current_sku_id = machine.config.hw_sku.clone().unwrap();
 
         // Assign a mismatched SKU
         assign_mismatched_sku(&mut txn, &machine_id, &current_sku_id).await?;
@@ -1578,7 +1578,7 @@ pub mod tests {
             }
         ));
 
-        let expected_sku_id = machine.hw_sku.unwrap();
+        let expected_sku_id = machine.config.hw_sku.unwrap();
 
         // A new machine with the same hardware is automatically assigned the above
         // sku and moves on.
@@ -1587,7 +1587,7 @@ pub mod tests {
 
         let machine2 = mh2.host().db_machine(&mut txn).await;
 
-        assert_eq!(machine2.hw_sku, Some(expected_sku_id));
+        assert_eq!(machine2.config.hw_sku, Some(expected_sku_id));
 
         Ok(())
     }
@@ -1616,6 +1616,7 @@ pub mod tests {
         .unwrap();
 
         let sku_id = machine
+            .config
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
@@ -1624,8 +1625,8 @@ pub mod tests {
             .pop()
             .expect("SKU should exist");
 
-        let original_verify_time = machine.hw_sku_status.map(|s| s.verify_request_time);
-        assert_eq!(machine.hw_sku.unwrap(), actual_sku.id);
+        let original_verify_time = machine.status.hw_sku_status.map(|s| s.verify_request_time);
+        assert_eq!(machine.config.hw_sku.unwrap(), actual_sku.id);
 
         txn.commit().await?;
         let mut txn = pool.begin().await?;
@@ -1644,7 +1645,7 @@ pub mod tests {
         .pop()
         .unwrap();
 
-        let replace_verify_time = machine.hw_sku_status.map(|s| s.verify_request_time);
+        let replace_verify_time = machine.status.hw_sku_status.map(|s| s.verify_request_time);
 
         assert_ne!(original_verify_time, replace_verify_time);
 
@@ -1703,6 +1704,7 @@ pub mod tests {
 
         // The SKU should have been auto-created by create_managed_host when BOM validation is enabled
         let expected_sku_id = machine
+            .config
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
@@ -1729,7 +1731,7 @@ pub mod tests {
         .pop()
         .unwrap();
 
-        assert_eq!(machine.hw_sku, Some(expected_sku.id.clone()));
+        assert_eq!(machine.config.hw_sku, Some(expected_sku.id.clone()));
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
 
         clear_sku_status(&mut txn, &machine_id).await?;
@@ -1779,7 +1781,7 @@ pub mod tests {
         .pop()
         .unwrap();
 
-        assert_eq!(machine.hw_sku, Some(expected_sku.id));
+        assert_eq!(machine.config.hw_sku, Some(expected_sku.id));
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
 
         Ok(())
@@ -1833,7 +1835,7 @@ pub mod tests {
         .await?
         .pop()
         .unwrap();
-        let assigned_sku_id = machine.hw_sku.unwrap();
+        let assigned_sku_id = machine.config.hw_sku.unwrap();
         // Make a new sku, using the assigned sku as a base and renaming it "unassigned-sku" (and
         // bump its cpu count.)
         let unassigned_sku = pool

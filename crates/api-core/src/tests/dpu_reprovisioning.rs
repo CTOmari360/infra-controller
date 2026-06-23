@@ -308,12 +308,12 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(&dpu.reprovision_requested.unwrap().initiator, "AdminCli");
 
-    let last_reboot_requested_time = dpu.last_reboot_requested;
+    let last_reboot_requested_time = dpu.status.last_reboot_requested;
 
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.as_ref().unwrap().time,
+        dpu.status.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.as_ref().unwrap().time
     );
     // DPU restart on Ready -> Reprovision state
@@ -1174,14 +1174,14 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_eq!(dpu.reprovision_requested.unwrap().initiator, "AdminCli");
-    let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
+    let last_reboot_requested_time = dpu.status.last_reboot_requested.as_ref();
     for _ in 0..3 {
         env.run_machine_state_controller_iteration().await;
     }
 
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.unwrap().time,
+        dpu.status.last_reboot_requested.unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
 
@@ -1227,7 +1227,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     update_time_params(&env.pool, &dpu, 1, None).await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
 
@@ -1237,18 +1237,18 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     let dpu_ = mh.dpu().db_machine(&mut txn).await;
 
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu_.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
     txn.commit().await.unwrap();
 
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert_ne!(
-        dpu_.last_reboot_requested.as_ref().unwrap().time,
-        dpu.last_reboot_requested.as_ref().unwrap().time
+        dpu_.status.last_reboot_requested.as_ref().unwrap().time,
+        dpu.status.last_reboot_requested.as_ref().unwrap().time
     );
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
 
@@ -1256,7 +1256,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     update_time_params(&env.pool, &dpu, 3, None).await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
 
@@ -1264,7 +1264,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     update_time_params(&env.pool, &dpu, 4, None).await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::PowerOff
     ));
 
@@ -1272,7 +1272,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     update_time_params(&env.pool, &dpu, 5, None).await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::PowerOn
     ));
 
@@ -1280,7 +1280,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     update_time_params(&env.pool, &dpu, 5, None).await;
     let dpu = mh.dpu().next_iteration_machine(&env).await;
     assert!(matches!(
-        dpu.last_reboot_requested.as_ref().unwrap().mode,
+        dpu.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
 }
@@ -1304,7 +1304,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
+    let last_reboot_requested_time = dpu.status.last_reboot_requested.as_ref();
 
     let handler = MachineStateHandlerBuilder::builder()
         .hardware_models(env.config.get_firmware_config())
@@ -1321,7 +1321,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.as_ref().unwrap().time,
+        dpu.status.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
 
@@ -1351,11 +1351,11 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
-    let last_reboot_requested = host.last_reboot_requested.as_ref().unwrap();
+    let last_reboot_requested = host.status.last_reboot_requested.as_ref().unwrap();
 
     tracing::info!("power request: {:?}", last_reboot_requested);
     assert!(matches!(
-        host.last_reboot_requested.as_ref().unwrap().mode,
+        host.status.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
     ));
 
@@ -1635,7 +1635,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         "AdminCli"
     );
 
-    let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
+    let last_reboot_requested_time = dpu.status.last_reboot_requested.as_ref();
 
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu_n(0).db_machine(&mut txn).await;
@@ -1654,7 +1654,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu_n(0).db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.as_ref().unwrap().time,
+        dpu.status.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
     assert_eq!(
@@ -1772,12 +1772,12 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         "AdminCli"
     );
 
-    let last_reboot_requested_time = dpu.last_reboot_requested.as_ref();
+    let last_reboot_requested_time = dpu.status.last_reboot_requested.as_ref();
 
     env.run_machine_state_controller_iteration().await;
     let dpu = mh.dpu_n(0).db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.as_ref().unwrap().time,
+        dpu.status.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
     assert_eq!(
@@ -1798,7 +1798,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     let dpu = mh.dpu_n(0).db_machine(&mut txn).await;
     assert_ne!(
-        dpu.last_reboot_requested.as_ref().unwrap().time,
+        dpu.status.last_reboot_requested.as_ref().unwrap().time,
         last_reboot_requested_time.unwrap().time
     );
     assert_eq!(

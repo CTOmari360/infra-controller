@@ -22,8 +22,8 @@ use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;
-use crate::hardware_info::{CpuInfo, InfinibandInterface};
-use crate::machine::{HardwareInfo, MachineInterfaceSnapshot};
+use crate::hardware_info::{CpuInfo, HardwareInfo, InfinibandInterface};
+use crate::machine::MachineInterfaceSnapshot;
 
 lazy_static::lazy_static! {
     static ref BLOCK_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(Virtual_CDROM\d+|Virtual_SD\d+|NO_MODEL|LOGICAL_VOLUME)").unwrap();

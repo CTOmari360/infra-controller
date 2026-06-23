@@ -460,7 +460,13 @@ async fn test_zero_dpu_instance_allocation_auto(
         .await
         .remove(0);
 
-    let instance_network_restrictions = rpc_machine.instance_network_restrictions.unwrap();
+    let instance_network_restrictions = rpc_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .instance_network_restrictions
+        .clone()
+        .unwrap();
     assert_eq!(
         instance_network_restrictions.network_segment_membership_type,
         forge::InstanceNetworkSegmentMembershipType::Static as i32,
@@ -1217,7 +1223,13 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND_2")
             .await?;
 
-    let instance_network_restrictions = host_snapshot_rpc.instance_network_restrictions.unwrap();
+    let instance_network_restrictions = host_snapshot_rpc
+        .status
+        .as_ref()
+        .unwrap()
+        .instance_network_restrictions
+        .clone()
+        .unwrap();
     assert_eq!(
         instance_network_restrictions.network_segment_membership_type,
         forge::InstanceNetworkSegmentMembershipType::Static as i32,
@@ -1385,7 +1397,13 @@ async fn test_single_dpu_instance_allocation(
         .machines
         .remove(0);
 
-    let dpu_machine_id = machine.associated_dpu_machine_ids.remove(0).into();
+    let dpu_machine_id = machine
+        .status
+        .as_mut()
+        .unwrap()
+        .associated_dpu_machine_ids
+        .remove(0)
+        .into();
 
     let response = env
         .api

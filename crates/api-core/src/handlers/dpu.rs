@@ -104,6 +104,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let primary_dpu_snapshot = snapshot
         .host_snapshot
+        .status
         .interfaces
         .iter()
         .find(|x| x.primary_interface)
@@ -190,6 +191,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let booturl_override = if snapshot
         .host_snapshot
+        .status
         .hardware_info
         .as_ref()
         .map(|h| h.machine_type)
@@ -927,7 +929,7 @@ pub(crate) async fn record_dpu_network_status(
                 id: dpu_machine_id.to_string(),
             })?;
 
-        if snapshot.host_snapshot.dpf.used_for_ingestion {
+        if snapshot.host_snapshot.config.dpf.used_for_ingestion {
             // DPF-managed DPUs don't use this upgrade path. Clear any stale flag so the DPU
             // doesn't keep receiving upgrade signals after the host was switched to DPF.
             if dpu_machine.needs_agent_upgrade() {

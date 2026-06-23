@@ -245,7 +245,7 @@ pub(crate) async fn forge_agent_control(
                 // cleanup: send it to discovery, which promotes it; the promoted host then
                 // waits for its storage cleanup. Mirrors the state handler's
                 // WaitingForDiscovery guard.
-                if host_machine.last_cleanup_time.is_some()
+                if host_machine.status.last_cleanup_time.is_some()
                     || !host_machine.id.machine_type().is_host()
                 {
                     (Action::discovery(), Some(txn))
@@ -282,7 +282,7 @@ pub(crate) async fn forge_agent_control(
                     },
                 ..
             } => {
-                let last_cleanup_time = host_machine.last_cleanup_time;
+                let last_cleanup_time = host_machine.status.last_cleanup_time;
                 let state_version = host_machine.state.version;
                 tracing::info!(
                     "last_cleanup_time: {:?}, state_version: {:?}",
@@ -302,10 +302,10 @@ pub(crate) async fn forge_agent_control(
             } => {
                 tracing::info!(
                     "Request Discovery {} < {}",
-                    machine.last_discovery_time.unwrap_or_default(),
+                    machine.status.last_discovery_time.unwrap_or_default(),
                     machine.current_version().timestamp()
                 );
-                if machine.last_discovery_time.unwrap_or_default()
+                if machine.status.last_discovery_time.unwrap_or_default()
                     < machine.current_version().timestamp()
                 {
                     (Action::discovery(), Some(txn))
@@ -386,7 +386,7 @@ fn record_reboot_duration_metric(
     metric_emitter: &ApiMetricsEmitter,
     machine: &model::machine::Machine,
 ) {
-    let Some(last_reboot_requested) = &machine.last_reboot_requested else {
+    let Some(last_reboot_requested) = &machine.status.last_reboot_requested else {
         return;
     };
 
@@ -407,6 +407,7 @@ fn record_reboot_duration_metric(
 
     // Extract product name and vendor from hardware info
     let product_name = machine
+        .status
         .hardware_info
         .as_ref()
         .and_then(|hi| hi.dmi_data.as_ref())
@@ -414,6 +415,7 @@ fn record_reboot_duration_metric(
         .unwrap_or_else(|| "unknown".to_string());
 
     let vendor = machine
+        .status
         .hardware_info
         .as_ref()
         .and_then(|hi| hi.dmi_data.as_ref())
