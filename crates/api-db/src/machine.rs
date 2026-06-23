@@ -1361,6 +1361,30 @@ pub async fn set_use_admin_network_changed(
     Ok(())
 }
 
+/// Clears the `use_admin_network_changed` flag only if the machine is still at
+/// the expected network config version.
+pub async fn clear_use_admin_network_changed_if_version_matches(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    expected_version: &ConfigVersion,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', 'false'::jsonb)
+        WHERE id = $1
+          AND network_config_version = $2
+          AND network_config -> 'use_admin_network_changed' = 'true'::jsonb
+    "#;
+    let result = sqlx::query(query)
+        .bind(machine_id)
+        .bind(expected_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// Replaces predicted host id with stable host id.
 /// Once forge receives DiscoveryData from Host, forge can create StableMachineId.
 /// This StableMachineId must replace existing PredictedHostId in db.

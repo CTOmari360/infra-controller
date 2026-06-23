@@ -379,6 +379,7 @@ pub async fn setup_and_run(
         extension_service_manager,
         nvue_context,
         dhcp_interface_translation_mode,
+        last_ovs_restart_version: None,
     };
 
     main_loop.run().await
@@ -412,6 +413,7 @@ struct MainLoop {
     extension_service_manager: extension_services::ExtensionServiceManager,
     nvue_context: Option<NvueClientContext>,
     dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
+    last_ovs_restart_version: Option<String>,
 }
 
 struct IterationResult {
@@ -721,19 +723,34 @@ impl MainLoop {
 
                             let mut can_ack_network_config = true;
                             if conf.use_admin_network_changed.unwrap_or_default() {
-                                tracing::info!(
-                                    "Restart OVS because use_admin_network_changed is set to true"
-                                );
-                                if let Err(err) = crate::ovs::restart_ovs()
-                                    .await
-                                    .wrap_err("restarting OVS after admin network change")
+                                if self.last_ovs_restart_version.as_deref()
+                                    == Some(conf.managed_host_config_version.as_str())
                                 {
-                                    tracing::error!(
-                                        error = format!("{err:#}"),
-                                        "Restarting OVS after admin network change"
+                                    tracing::info!(
+                                        managed_host_config_version =
+                                            conf.managed_host_config_version.as_str(),
+                                        "Skip OVS restart because this network config version already restarted OVS"
                                     );
-                                    status_out.network_config_error = Some(err.to_string());
-                                    can_ack_network_config = false;
+                                } else {
+                                    tracing::info!(
+                                        managed_host_config_version =
+                                            conf.managed_host_config_version.as_str(),
+                                        "Restart OVS because use_admin_network_changed is set to true"
+                                    );
+                                    if let Err(err) = crate::ovs::restart_ovs()
+                                        .await
+                                        .wrap_err("restarting OVS after admin network change")
+                                    {
+                                        tracing::error!(
+                                            error = format!("{err:#}"),
+                                            "Restarting OVS after admin network change"
+                                        );
+                                        status_out.network_config_error = Some(err.to_string());
+                                        can_ack_network_config = false;
+                                    } else {
+                                        self.last_ovs_restart_version =
+                                            Some(conf.managed_host_config_version.clone());
+                                    }
                                 }
                                 tracing::info!(
                                     "Done with Restart OVS can_ack_network_config is {can_ack_network_config}"

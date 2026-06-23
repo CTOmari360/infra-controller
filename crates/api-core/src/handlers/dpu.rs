@@ -861,7 +861,12 @@ pub(crate) async fn record_dpu_network_status(
             &dpu_machine_id,
             dpu_machine.network_config.version,
         );
-        db::machine::set_use_admin_network_changed(&mut txn, &dpu_machine_id, false).await?;
+        db::machine::clear_use_admin_network_changed_if_version_matches(
+            &mut txn,
+            &dpu_machine_id,
+            &dpu_machine.network_config.version,
+        )
+        .await?;
     }
     tracing::trace!(
         machine_id = %dpu_machine_id,
