@@ -64,6 +64,23 @@ pub struct SecretsContext {
     pub kms: Arc<dyn KmsBackend>,
 }
 
+/// Reject a nonsensical `[secrets].stores` list at boot: empty (at least one
+/// store is required -- the local-override readers alone can't be the whole
+/// credential source), or a store named twice (dead after the first, by
+/// first-match-wins). The order of the stores is the operator's choice.
+pub fn validate_stores(stores: &[crate::cfg::file::CredentialBackend]) -> eyre::Result<()> {
+    if stores.is_empty() {
+        return Err(eyre::eyre!(
+            "[secrets].stores is empty; at least one store (postgres or vault) is required"
+        ));
+    }
+    let unique: std::collections::HashSet<_> = stores.iter().collect();
+    if unique.len() != stores.len() {
+        return Err(eyre::eyre!("[secrets].stores names a store more than once"));
+    }
+    Ok(())
+}
+
 /// The secret path that records vault import completion. It starts with a
 /// slash on purpose: real credential paths never do, so no `CredentialKey`
 /// can collide with it, and the kek-scoped journal queries exclude it.
@@ -452,3 +469,28 @@ impl CredentialWriter for PostgresCredentialManager {
 }
 
 impl CredentialManager for PostgresCredentialManager {}
+
+#[cfg(test)]
+mod store_validation_tests {
+    use super::validate_stores;
+    use crate::cfg::file::CredentialBackend;
+
+    #[test]
+    fn accepts_any_order_of_distinct_stores() {
+        assert!(validate_stores(&[CredentialBackend::Vault]).is_ok());
+        assert!(validate_stores(&[CredentialBackend::Postgres]).is_ok());
+        assert!(validate_stores(&[CredentialBackend::Postgres, CredentialBackend::Vault]).is_ok());
+        // Order is the operator's choice -- vault ahead of postgres is fine.
+        assert!(validate_stores(&[CredentialBackend::Vault, CredentialBackend::Postgres]).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_stores() {
+        assert!(validate_stores(&[]).is_err());
+    }
+
+    #[test]
+    fn rejects_a_store_named_twice() {
+        assert!(validate_stores(&[CredentialBackend::Vault, CredentialBackend::Vault]).is_err());
+    }
+}
