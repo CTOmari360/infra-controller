@@ -3634,6 +3634,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn site_explorer_restart_ovs_on_use_admin_network_change_parses_and_displays() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(
+                "[site_explorer]\nrestart_ovs_on_use_admin_network_change = true\n",
+            ))
+            .extract()
+            .unwrap();
+
+        assert!(
+            config
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .load(AtomicOrdering::Relaxed)
+        );
+
+        let runtime_config: rpc::forge::RuntimeConfig = config.into();
+        assert!(runtime_config.restart_ovs_on_use_admin_network_change);
+    }
+
     /// Real-world site TOMLs may still carry the now-removed
     /// `force_dpu_nic_mode` setting (top-level and/or under
     /// `[site_explorer]`). serde silently ignores unknown keys, so

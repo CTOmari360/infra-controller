@@ -4243,7 +4243,7 @@ message ManagedHostNetworkConfigResponse {
 
   // When true, the DPU agent should restart openvswitch-switch to pick up
   // the change in admin vs tenant network configuration. The server clears
-  // this flag after sending it once (fire-once delivery).
+  // this flag after the DPU reports the matching network config version.
   optional bool use_admin_network_changed = 119;
 }
 

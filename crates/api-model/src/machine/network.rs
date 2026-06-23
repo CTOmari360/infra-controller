@@ -204,7 +204,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, scenarios, value_scenarios};
     use chrono::TimeZone;
     use config_version::ConfigVersion;
 
@@ -387,12 +387,33 @@ mod tests {
     // round-trip test.
     #[test]
     fn test_managed_host_network_config_default() {
-        let config = ManagedHostNetworkConfig::default();
-        assert_eq!(config.loopback_ip, None);
-        assert_eq!(config.secondary_overlay_vtep_ip, None);
-        assert_eq!(config.use_admin_network, Some(true));
-        assert_eq!(config.quarantine_state, None);
-        assert_eq!(config.use_admin_network_changed, None);
+        let default = ManagedHostNetworkConfig::default();
+        value_scenarios!(
+            run = |ip| ip;
+            "loopback_ip defaults to None" {
+                default.loopback_ip => None,
+            }
+
+            "secondary_overlay_vtep_ip defaults to None" {
+                default.secondary_overlay_vtep_ip => None,
+            }
+        );
+        value_scenarios!(
+            run = |flag| flag;
+            "use_admin_network defaults to Some(true)" {
+                default.use_admin_network => Some(true),
+            }
+
+            "use_admin_network_changed defaults to None" {
+                default.use_admin_network_changed => None,
+            }
+        );
+        Check {
+            scenario: "quarantine_state defaults to None",
+            input: default.quarantine_state,
+            expect: None,
+        }
+        .check(|qs| qs);
     }
 
     // ManagedHostQuarantineState::reason_str() returns the reason or an empty

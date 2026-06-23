@@ -66,6 +66,7 @@ impl MachineStateHandlerSiteConfig {
             dpf_enabled: false,
             spdm_enabled: false,
             dpu_enable_secure_boot: true,
+            restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
         }
     }
 }

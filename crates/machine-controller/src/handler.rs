@@ -7086,7 +7086,7 @@ impl StateHandler for InstanceStateHandler {
                     let mut txn = ctx.services.db_pool.begin().await?;
                     let host_version = mh_snapshot.host_snapshot.network_config.version;
                     let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
-                    if host_netconf.use_admin_network == Some(true) {
+                    if host_netconf.use_admin_network != Some(false) {
                         host_netconf.use_admin_network = Some(false);
                         process_dpu_use_admin_network_state_change(
                             &mut txn,
@@ -7145,7 +7145,7 @@ async fn process_dpu_use_admin_network_state_change(
     .await?;
 
     tracing::info!(
-        "Host {} has changed use_admin_network state. {} use_admin_network_changed flag updated {updated} site_restart_ovs={site_restart_ovs}",
+        "Host {} has changed use_admin_network state. {} use_admin_network_changed with network updated state={updated} and site_restart_ovs={site_restart_ovs}",
         &mh_snapshot.host_snapshot.id,
         if updated && site_restart_ovs {
             "Process"
