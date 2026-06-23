@@ -21,7 +21,6 @@ use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use attestation::{
@@ -70,7 +69,6 @@ use model::instance::status::extension_service::{
 };
 use model::machine::LockdownMode::{self, Enable};
 use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
-use model::machine::network::ManagedHostNetworkConfig;
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
@@ -6731,23 +6729,30 @@ impl StateHandler for InstanceStateHandler {
                     // direction, version bumps the entire machine group (host + DPUs),
                     // so they report "out of sync" until agents poll + apply + report,
                     // where WaitingForNetworkReconfig waits on that.
-                    // Set use_admin_network_changed if we want to reboot
-                    // ovs on admin network change.
                     let mut txn = ctx.services.db_pool.begin().await?;
                     let host_version = mh_snapshot.host_snapshot.network_config.version;
                     let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
-                    if host_netconf.use_admin_network != Some(true) {
-                        host_netconf.use_admin_network = Some(true);
-                        process_dpu_use_admin_network_state_change(
-                            &mut txn,
-                            mh_snapshot,
-                            host_version,
-                            &host_netconf,
-                            &ctx.services
-                                .site_config
-                                .restart_ovs_on_use_admin_network_change,
-                        )
-                        .await?;
+                    let old_use_admin_network = host_netconf.use_admin_network;
+                    host_netconf.use_admin_network = Some(true);
+                    let updated = db::machine::try_update_network_config(
+                        &mut txn,
+                        &mh_snapshot.host_snapshot.id,
+                        host_version,
+                        &host_netconf,
+                    )
+                    .await?;
+
+                    // Set use_admin_network_changed if we want to reboot
+                    // ovs on admin network change.
+                    if updated
+                        && old_use_admin_network != host_netconf.use_admin_network
+                        && ctx
+                            .services
+                            .site_config
+                            .restart_ovs_on_use_admin_network_change
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        process_dpu_use_admin_network_state_change(&mut txn, mh_snapshot).await?;
                     }
 
                     // Bump each DPA interface's config version so the DPA State Controller
@@ -7086,18 +7091,27 @@ impl StateHandler for InstanceStateHandler {
                     let mut txn = ctx.services.db_pool.begin().await?;
                     let host_version = mh_snapshot.host_snapshot.network_config.version;
                     let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
-                    if host_netconf.use_admin_network != Some(false) {
-                        host_netconf.use_admin_network = Some(false);
-                        process_dpu_use_admin_network_state_change(
-                            &mut txn,
-                            mh_snapshot,
-                            host_version,
-                            &host_netconf,
-                            &ctx.services
-                                .site_config
-                                .restart_ovs_on_use_admin_network_change,
-                        )
-                        .await?;
+                    let old_use_admin_network = host_netconf.use_admin_network;
+                    host_netconf.use_admin_network = Some(false);
+                    let updated = db::machine::try_update_network_config(
+                        &mut txn,
+                        &mh_snapshot.host_snapshot.id,
+                        host_version,
+                        &host_netconf,
+                    )
+                    .await?;
+
+                    // Set use_admin_network_changed if we want to reboot
+                    // ovs on admin network change.
+                    if updated
+                        && old_use_admin_network != host_netconf.use_admin_network
+                        && ctx
+                            .services
+                            .site_config
+                            .restart_ovs_on_use_admin_network_change
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        process_dpu_use_admin_network_state_change(&mut txn, mh_snapshot).await?;
                     }
 
                     // The host was already flipped to tenant network in the
@@ -7127,36 +7141,11 @@ impl StateHandler for InstanceStateHandler {
 async fn process_dpu_use_admin_network_state_change(
     txn: &mut PgConnection,
     mh_snapshot: &ManagedHostStateSnapshot,
-    host_version: ConfigVersion,
-    host_netconf: &ManagedHostNetworkConfig,
-    site_restart_ovs: &Arc<AtomicBool>,
 ) -> Result<(), StateHandlerError> {
-    let site_restart_ovs = site_restart_ovs.load(std::sync::atomic::Ordering::Relaxed);
-
-    // Update the host network config. This performs a "group sync" that
-    // bumps the config version on all DPUs in the machine group, signalling
-    // their agents to re-poll and apply the new config.
-    let updated = db::machine::try_update_network_config(
-        txn,
-        &mh_snapshot.host_snapshot.id,
-        host_version,
-        host_netconf,
-    )
-    .await?;
-
     tracing::info!(
-        "Host {} has changed use_admin_network state. {} use_admin_network_changed with network updated state={updated} and site_restart_ovs={site_restart_ovs}",
-        &mh_snapshot.host_snapshot.id,
-        if updated && site_restart_ovs {
-            "Process"
-        } else {
-            "Ignore"
-        }
+        "Set use_admin_network_changed flag as host {} has changed use_admin_network state and site-restart-ovs is set",
+        &mh_snapshot.host_snapshot.id
     );
-
-    if !updated || !site_restart_ovs {
-        return Ok(());
-    }
 
     // Determine which DPUs have tenant interface configs. A DPU matches if:
     //  - the interface config has no device_locator and the DPU is the

@@ -1346,12 +1346,18 @@ pub async fn set_use_admin_network_changed(
         SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', $1::jsonb)
         WHERE id = $2
     "#;
-    sqlx::query(query)
+    let result = sqlx::query(query)
         .bind(sqlx::types::Json(value))
         .bind(machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        });
+    }
     Ok(())
 }
 
