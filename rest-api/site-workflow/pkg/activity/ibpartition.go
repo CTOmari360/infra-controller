@@ -131,13 +131,13 @@ func (mibp *ManageInfiniBandPartition) CreateInfiniBandPartitionOnSite(ctx conte
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call Core gRPC endpoint
+	start := time.Now()
 	_, err = grpcServiceClient.CreateIBPartition(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "CreateIBPartition", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create InfiniBand Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return nil
 }
@@ -168,13 +168,13 @@ func (mibp *ManageInfiniBandPartition) UpdateInfiniBandPartitionOnSite(ctx conte
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateIBPartition(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "UpdateIBPartition", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update InfiniBand Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return nil
 }
@@ -205,13 +205,13 @@ func (mipb *ManageInfiniBandPartition) DeleteInfiniBandPartitionOnSite(ctx conte
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteIBPartition(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "DeleteIBPartition", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete InfiniBand Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return nil
 }

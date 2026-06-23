@@ -54,13 +54,13 @@ func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, reques
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.SetMaintenance(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "SetMaintenance", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to set Maintenance mode for Machine using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return err
 }
@@ -91,13 +91,13 @@ func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, reques
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateMachineMetadata(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "UpdateMachineMetadata", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Machine metadata using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return err
 }
@@ -117,13 +117,14 @@ func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, re
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err := grpcServiceClient.InsertMachineHealthReport(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "InsertMachineHealthReport", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to insert health report using Site Controller API")
 		return swe.WrapErr(err)
 	}
 
-	logger.Info().Msg("Completed activity")
 	return nil
 }
 
@@ -142,13 +143,14 @@ func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, re
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err := grpcServiceClient.RemoveMachineHealthReport(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "RemoveMachineHealthReport", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to remove health report using Site Controller API")
 		return swe.WrapErr(err)
 	}
 
-	logger.Info().Msg("Completed activity")
 	return nil
 }
 

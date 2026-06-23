@@ -51,13 +51,13 @@ func (mt *ManageTenant) CreateTenantOnSite(ctx context.Context, request *cwssaws
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.CreateTenant(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "CreateTenant", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Tenant using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return err
 }
@@ -88,13 +88,13 @@ func (mt *ManageTenant) UpdateTenantOnSite(ctx context.Context, request *cwssaws
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateTenant(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "UpdateTenant", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Tenant using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return err
 }

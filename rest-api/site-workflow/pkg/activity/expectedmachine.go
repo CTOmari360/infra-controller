@@ -283,13 +283,13 @@ func (mem *ManageExpectedMachine) CreateExpectedMachineOnSite(ctx context.Contex
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call Core gRPC endpoint
+	start := time.Now()
 	_, err = grpcServiceClient.AddExpectedMachine(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "AddExpectedMachine", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Machine using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return nil
 }
@@ -322,13 +322,13 @@ func (mem *ManageExpectedMachine) UpdateExpectedMachineOnSite(ctx context.Contex
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateExpectedMachine(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "UpdateExpectedMachine", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Expected Machine using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return nil
 }
@@ -359,13 +359,13 @@ func (mem *ManageExpectedMachine) DeleteExpectedMachineOnSite(ctx context.Contex
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteExpectedMachine(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "DeleteExpectedMachine", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete Expected Machine using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
 
 	return nil
 }
@@ -397,9 +397,11 @@ func (mem *ManageExpectedMachine) CreateExpectedMachinesOnSite(ctx context.Conte
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call the batch CreateExpectedMachines endpoint
+	start := time.Now()
 	response, err := grpcServiceClient.CreateExpectedMachines(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "CreateExpectedMachines", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Machines using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -581,9 +583,11 @@ func (mem *ManageExpectedMachine) UpdateExpectedMachinesOnSite(ctx context.Conte
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call the batch UpdateExpectedMachines endpoint
+	start := time.Now()
 	response, err := grpcServiceClient.UpdateExpectedMachines(ctx, request)
+	duration := time.Since(start)
+	logGrpcCallLatency(&logger, "UpdateExpectedMachines", duration, err)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Expected Machines using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
