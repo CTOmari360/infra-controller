@@ -243,6 +243,7 @@ mod tests {
                 (Cow::Borrowed("message_id"), message_id.to_string()),
                 (Cow::Borrowed("message_args"), message_args.to_string()),
             ],
+            diagnostic_record: None,
         }))
     }
 

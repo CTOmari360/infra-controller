@@ -531,6 +531,7 @@ mod tests {
             body: "something happened".to_string(),
             severity: "WARNING".to_string(),
             attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
+            diagnostic_record: None,
         }));
 
         let request = build_export_request(&[(ctx, log)]);
@@ -602,6 +603,7 @@ mod tests {
                     body: "x".to_string(),
                     severity: "INFO".to_string(),
                     attributes: vec![],
+                    diagnostic_record: None,
                 })),
             )
         };

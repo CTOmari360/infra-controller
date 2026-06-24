@@ -258,9 +258,29 @@ impl Default for SinksConfig {
     }
 }
 
+impl SinksConfig {
+    /// Returns true when at least one diagnostic-capable sink opts in.
+    pub fn includes_log_diagnostics(&self) -> bool {
+        self.tracing
+            .as_option()
+            .is_some_and(|config| config.include_diagnostics)
+            || self
+                .log_file
+                .as_option()
+                .is_some_and(|config| config.include_diagnostics)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct TracingSinkConfig {}
+pub struct TracingSinkConfig {
+    /// Emit Redfish diagnostic payload fields.
+    ///
+    /// Disabled by default because payload bodies are opaque and may be large or
+    /// sensitive. If no diagnostic-capable sink enables this, collectors do not
+    /// attach diagnostic fields.
+    pub include_diagnostics: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -272,11 +292,19 @@ pub struct LogFileSinkConfig {
     pub output_dir: String,
     pub max_file_size: u64,
     pub max_backups: usize,
+
+    /// Write Redfish diagnostic payload fields.
+    ///
+    /// Disabled by default because payload bodies are opaque and may be large or
+    /// sensitive. If no diagnostic-capable sink enables this, collectors do not
+    /// attach diagnostic fields.
+    pub include_diagnostics: bool,
 }
 
 impl Default for LogFileSinkConfig {
     fn default() -> Self {
         Self {
+            include_diagnostics: false,
             output_dir: "/tmp/logs".to_string(),
             max_file_size: 104_857_600, // 100MB
             max_backups: 5,
@@ -1521,6 +1549,64 @@ username = "root"
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig::default());
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sink_include_diagnostics_configs_parse() {
+        let tracing: TracingSinkConfig = Figment::new()
+            .merge(Toml::string("include_diagnostics = true"))
+            .extract()
+            .expect("tracing config should parse");
+        let log_file: LogFileSinkConfig = Figment::new()
+            .merge(Toml::string("include_diagnostics = true"))
+            .extract()
+            .expect("log file config should parse");
+
+        assert!(tracing.include_diagnostics);
+        assert!(log_file.include_diagnostics);
+        assert!(!TracingSinkConfig::default().include_diagnostics);
+        assert!(!LogFileSinkConfig::default().include_diagnostics);
+    }
+
+    #[test]
+    fn test_sinks_config_includes_log_diagnostics() {
+        let cases = [
+            ("default", SinksConfig::default(), false),
+            (
+                "diagnostic-capable-sinks-enabled-without-diagnostics",
+                SinksConfig {
+                    tracing: Configurable::Enabled(TracingSinkConfig::default()),
+                    log_file: Configurable::Enabled(LogFileSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                false,
+            ),
+            (
+                "tracing-diagnostics",
+                SinksConfig {
+                    tracing: Configurable::Enabled(TracingSinkConfig {
+                        include_diagnostics: true,
+                    }),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "log-file-diagnostics",
+                SinksConfig {
+                    log_file: Configurable::Enabled(LogFileSinkConfig {
+                        include_diagnostics: true,
+                        ..LogFileSinkConfig::default()
+                    }),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+        ];
+
+        for (name, sinks, expected) in cases {
+            assert_eq!(sinks.includes_log_diagnostics(), expected, "{name}");
+        }
     }
 
     #[test]
