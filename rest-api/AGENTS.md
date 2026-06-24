@@ -536,6 +536,32 @@ of rule 3 (validation reads hoisted out of the tx). NVLink Logical
 Partition's Delete handler shows the rule 5 `timeoutResp`-gating pattern
 in its simplest form.
 
+### Bulk updates must not clobber omitted (PATCH-preserved) columns
+
+`UpdateMultiple`-style DAOs build one shared column list and apply it to every
+row in a single bulk `UPDATE`. Any column added to that shared `columnsSet` is
+written for **every** row in the batch — including rows whose input omitted the
+field, which carry the model's zero value. For a field whose API contract is
+"omitting it preserves the existing value" (PATCH semantics), folding it into
+the shared set silently clears the stored value on untouched rows in a mixed
+batch.
+
+When adding such a field to a bulk-update DAO:
+
+- Do **not** add it to the shared `columnsSet`.
+- Apply it in a separate bulk `UPDATE` scoped to only the rows that provided it
+  (carry per-row presence through the SQL shape), or split the batch by
+  identical column set.
+- Keep create vs. update straight: on create, an omitted optional field is
+  stored as its zero/empty value; on update, an omitted field must be left
+  untouched.
+- Add a mixed-batch test: some rows set the field, others omit it, and assert
+  the omitted rows keep their prior value.
+
+`ExpectedMachine.UpdateMultiple` (`db/pkg/db/model/expectedmachine.go`) applies
+`host_lifecycle_profile` this way and is the reference;
+`TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile` is the guard.
+
 ## Git Workflow
 
 When writing git commit messages, follow the conventions below:

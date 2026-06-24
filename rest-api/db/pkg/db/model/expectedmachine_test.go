@@ -1641,3 +1641,91 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 		})
 	}
 }
+
+// TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile guards against a
+// mixed batch clearing host_lifecycle_profile on rows that did not set it.
+// Because the shared bulk UPDATE applies one column list to every row, the field
+// must be applied separately to only the rows that provide it; rows that omit it
+// must keep their persisted profile.
+func TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInitDB(t)
+	defer dbSession.Close()
+	testExpectedMachineSetupSchema(t, dbSession)
+
+	user := TestBuildUser(t, dbSession, "test-user", "test-org", []string{"admin"})
+	ip := TestBuildInfrastructureProvider(t, dbSession, "test-provider", "test-org", user)
+	site := TestBuildSite(t, dbSession, ip, "test-site", user)
+
+	emsd := NewExpectedMachineDAO(dbSession)
+
+	// emA starts with disable_lockdown=true and is updated WITHOUT a profile.
+	emA, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:    uuid.New(),
+		SiteID:               site.ID,
+		BmcMacAddress:        "00:1B:44:11:3A:F1",
+		ChassisSerialNumber:  "CHASSIS-HLP-A",
+		HostLifecycleProfile: HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		CreatedBy:            user.ID,
+	})
+	assert.NoError(t, err)
+
+	// emB starts with disable_lockdown=false and is the only row that sets a
+	// profile in the batch (flipping it to true).
+	emB, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:    uuid.New(),
+		SiteID:               site.ID,
+		BmcMacAddress:        "00:1B:44:11:3A:F2",
+		ChassisSerialNumber:  "CHASSIS-HLP-B",
+		HostLifecycleProfile: HostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)},
+		CreatedBy:            user.ID,
+	})
+	assert.NoError(t, err)
+
+	// emC starts unset and is updated WITHOUT a profile.
+	emC, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:   uuid.New(),
+		SiteID:              site.ID,
+		BmcMacAddress:       "00:1B:44:11:3A:F3",
+		ChassisSerialNumber: "CHASSIS-HLP-C",
+		CreatedBy:           user.ID,
+	})
+	assert.NoError(t, err)
+
+	_, err = emsd.UpdateMultiple(ctx, nil, []ExpectedMachineUpdateInput{
+		{
+			ExpectedMachineID:   emA.ID,
+			ChassisSerialNumber: cutil.GetPtr("CHASSIS-HLP-A2"),
+		},
+		{
+			ExpectedMachineID:    emB.ID,
+			HostLifecycleProfile: &HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		},
+		{
+			ExpectedMachineID: emC.ID,
+			Labels:            map[string]string{"env": "test"},
+		},
+	})
+	assert.NoError(t, err)
+
+	// emA: other field changed, profile preserved (still true).
+	gotA, err := emsd.Get(ctx, nil, emA.ID, nil, false)
+	assert.NoError(t, err)
+	assert.Equal(t, "CHASSIS-HLP-A2", gotA.ChassisSerialNumber)
+	if assert.NotNil(t, gotA.HostLifecycleProfile.DisableLockdown, "omitted profile must be preserved") {
+		assert.Equal(t, true, *gotA.HostLifecycleProfile.DisableLockdown)
+	}
+
+	// emB: profile explicitly updated false -> true.
+	gotB, err := emsd.Get(ctx, nil, emB.ID, nil, false)
+	assert.NoError(t, err)
+	if assert.NotNil(t, gotB.HostLifecycleProfile.DisableLockdown) {
+		assert.Equal(t, true, *gotB.HostLifecycleProfile.DisableLockdown)
+	}
+
+	// emC: other field changed, unset profile stays unset.
+	gotC, err := emsd.Get(ctx, nil, emC.ID, nil, false)
+	assert.NoError(t, err)
+	assert.Equal(t, Labels{"env": "test"}, gotC.Labels)
+	assert.Nil(t, gotC.HostLifecycleProfile.DisableLockdown, "omitted profile (unset) must stay unset")
+}

@@ -632,6 +632,9 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 	expectedMachines := make([]*ExpectedMachine, 0, len(inputs))
 	ids := make([]uuid.UUID, 0, len(inputs))
 	columnsSet := make(map[string]bool)
+	// host_lifecycle_profile is applied in its own bulk update scoped to only the
+	// rows that set it (see below), so rows that omit it keep their existing value.
+	hlpUpdates := make([]*ExpectedMachine, 0, len(inputs))
 
 	for _, input := range inputs {
 		em := &ExpectedMachine{
@@ -698,13 +701,22 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 			em.HostID = input.HostID
 			columnsSet["host_id"] = true
 		}
-		if input.HostLifecycleProfile != nil {
-			em.HostLifecycleProfile = *input.HostLifecycleProfile
-			columnsSet["host_lifecycle_profile"] = true
-		}
 
 		expectedMachines = append(expectedMachines, em)
 		ids = append(ids, input.ExpectedMachineID)
+
+		// host_lifecycle_profile is deliberately kept out of the shared
+		// columnsSet. The bulk UPDATE applies one column list to every row, so
+		// folding it in would write the column for rows that omitted it (their
+		// model carries the zero value here), silently clearing the persisted
+		// profile. Omitting the field must preserve the existing value, so it is
+		// applied separately to only the rows that set it.
+		if input.HostLifecycleProfile != nil {
+			hlpUpdates = append(hlpUpdates, &ExpectedMachine{
+				ID:                   input.ExpectedMachineID,
+				HostLifecycleProfile: *input.HostLifecycleProfile,
+			})
+		}
 	}
 
 	// Build column list
@@ -731,6 +743,20 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		Exec(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply host_lifecycle_profile only to the rows that provided it. Rows that
+	// omitted it are absent here and keep their persisted value. The `updated`
+	// column is already touched for every row by the bulk update above.
+	if len(hlpUpdates) > 0 {
+		_, err = db.GetIDB(tx, emsd.dbSession).NewUpdate().
+			Model(&hlpUpdates).
+			Column("host_lifecycle_profile").
+			Bulk().
+			Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Fetch the updated expected machines
