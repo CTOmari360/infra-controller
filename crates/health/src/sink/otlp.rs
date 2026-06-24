@@ -16,6 +16,7 @@
  */
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use prometheus::Counter;
 
@@ -48,6 +49,8 @@ pub(crate) struct OtlpSink {
     replaced_total: Counter,
     metrics_replaced_total: Counter,
     mapper: Arc<dyn RedfishEventMapper>,
+    include_diagnostics: bool,
+    diagnostic_sequence: AtomicU64,
 }
 
 #[cfg(feature = "bench-hooks")]
@@ -57,9 +60,11 @@ pub struct OtlpSink {
     replaced_total: Counter,
     metrics_replaced_total: Counter,
     mapper: Arc<dyn RedfishEventMapper>,
+    include_diagnostics: bool,
+    diagnostic_sequence: AtomicU64,
 }
 
-/// true for events that belong in the logs drain; metrics and collection sentinels are not.
+/// Returns whether an event belongs in the logs drain.
 pub(crate) fn is_otlp_log_relevant(event: &CollectorEvent) -> bool {
     !matches!(
         event,
@@ -99,6 +104,7 @@ impl OtlpSink {
             format!("{prefix}_otlp_sink_replaced_total"),
             "total log events replaced in the otlp queue before drain could process them",
         )?;
+
         metrics_manager
             .global_registry()
             .register(Box::new(replaced_total.clone()))?;
@@ -107,6 +113,7 @@ impl OtlpSink {
             format!("{prefix}_otlp_sink_metrics_replaced_total"),
             "total metric samples replaced in the otlp queue before drain could process them",
         )?;
+
         metrics_manager
             .global_registry()
             .register(Box::new(metrics_replaced_total.clone()))?;
@@ -119,13 +126,15 @@ impl OtlpSink {
         );
         handle.spawn(drain.run());
 
-        // separate drain task so metrics don't head-of-line-block the logs export and vice versa
+        // Metrics use a separate drain so either signal type can make progress
+        // when the other collector is slow or temporarily failing.
         let metrics_drain = OtlpMetricsDrainTask::new(
             metrics_queue.clone(),
             config.endpoint.clone(),
             config.batch_size,
             config.flush_interval,
         );
+
         handle.spawn(metrics_drain.run());
 
         Ok(Self {
@@ -134,6 +143,8 @@ impl OtlpSink {
             replaced_total,
             metrics_replaced_total,
             mapper,
+            include_diagnostics: config.include_diagnostics,
+            diagnostic_sequence: AtomicU64::new(0),
         })
     }
 }
@@ -141,12 +152,21 @@ impl OtlpSink {
 #[cfg(any(test, feature = "bench-hooks"))]
 impl OtlpSink {
     pub fn new_for_bench(mapper: Arc<dyn RedfishEventMapper>) -> Self {
+        Self::new_for_bench_with_diagnostics(mapper, false)
+    }
+
+    fn new_for_bench_with_diagnostics(
+        mapper: Arc<dyn RedfishEventMapper>,
+        include_diagnostics: bool,
+    ) -> Self {
         Self {
             queue: Arc::new(DedupQueue::new()),
             metrics_queue: Arc::new(DedupQueue::new()),
             replaced_total: Counter::new("bench_replaced", "bench").unwrap(),
             metrics_replaced_total: Counter::new("bench_metrics_replaced", "bench").unwrap(),
             mapper,
+            include_diagnostics,
+            diagnostic_sequence: AtomicU64::new(0),
         }
     }
 }
@@ -170,12 +190,14 @@ impl DataSink for OtlpSink {
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::Metric(sample) = event {
             let key = metric_queue_key(context, sample);
+
             if self
                 .metrics_queue
                 .save_latest(key, (context.clone(), (**sample).clone()))
             {
                 self.metrics_replaced_total.inc();
             }
+
             return;
         }
 
@@ -183,27 +205,46 @@ impl DataSink for OtlpSink {
             return;
         }
 
-        let key = match event {
-            CollectorEvent::Log(record) => self
-                .mapper
-                .queue_key(&context.endpoint_key, &record.attributes),
+        let (key, event, count_replacements) = match event {
+            CollectorEvent::Log(record) => {
+                let has_included_diagnostics =
+                    self.include_diagnostics && record.diagnostic_record.is_some();
+
+                let log_record = record
+                    .emitted_log_record(self.include_diagnostics)
+                    .into_owned();
+
+                let key = if has_included_diagnostics {
+                    let sequence = self.diagnostic_sequence.fetch_add(1, Ordering::Relaxed);
+                    format!("{}|diagnostic|{sequence}", context.endpoint_key)
+                } else {
+                    self.mapper
+                        .queue_key(&context.endpoint_key, &record.attributes)
+                };
+
+                (
+                    key,
+                    CollectorEvent::Log(Box::new(log_record)),
+                    !has_included_diagnostics,
+                )
+            }
             CollectorEvent::HealthReport(report) => {
-                format!(
+                let key = format!(
                     "{}|health_report|{}",
                     context.endpoint_key,
                     report.source.as_str()
-                )
+                );
+
+                (key, event.clone(), true)
             }
             CollectorEvent::Firmware(info) => {
-                format!("{}|firmware|{}", context.endpoint_key, info.component)
+                let key = format!("{}|firmware|{}", context.endpoint_key, info.component);
+                (key, event.clone(), true)
             }
             _ => return,
         };
 
-        if self
-            .queue
-            .save_latest(key, (context.clone(), event.clone()))
-        {
+        if self.queue.save_latest(key, (context.clone(), event)) && count_replacements {
             self.replaced_total.inc();
         }
     }
@@ -213,13 +254,12 @@ impl DataSink for OtlpSink {
 mod tests {
     use std::borrow::Cow;
     use std::str::FromStr;
-    use std::sync::Arc;
 
     use mac_address::MacAddress;
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{LogRecord, MetricSample};
+    use crate::sink::{DiagnosticLogRecord, LogRecord, MetricSample};
 
     fn test_context() -> EventContext {
         EventContext {
@@ -236,6 +276,14 @@ mod tests {
     }
 
     fn log_event(message_id: &str, message_args: &str) -> CollectorEvent {
+        log_event_with_diagnostic_record(message_id, message_args, None)
+    }
+
+    fn log_event_with_diagnostic_record(
+        message_id: &str,
+        message_args: &str,
+        diagnostic_record: Option<DiagnosticLogRecord>,
+    ) -> CollectorEvent {
         CollectorEvent::Log(Box::new(LogRecord {
             body: "test".to_string(),
             severity: "OK".to_string(),
@@ -243,8 +291,18 @@ mod tests {
                 (Cow::Borrowed("message_id"), message_id.to_string()),
                 (Cow::Borrowed("message_args"), message_args.to_string()),
             ],
-            diagnostic_record: None,
+            diagnostic_record,
         }))
+    }
+
+    fn diagnostic_log_record(body: &str) -> DiagnosticLogRecord {
+        DiagnosticLogRecord {
+            body: body.to_string(),
+            attributes: vec![(
+                Cow::Borrowed("redfish.parent.log_entry_id"),
+                "42".to_string(),
+            )],
+        }
     }
 
     fn metric_event() -> CollectorEvent {
@@ -436,6 +494,78 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 1, "same sensor should dedup to one entry");
+    }
+
+    #[test]
+    fn diagnostic_log_record_is_skipped_by_default() {
+        let sink = test_sink();
+        let ctx = test_context();
+
+        sink.handle_event(
+            &ctx,
+            &log_event_with_diagnostic_record(
+                "OpenBMC.0.1.Test",
+                "[]",
+                Some(diagnostic_log_record("payload-a")),
+            ),
+        );
+
+        let mut bodies = Vec::new();
+        while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
+            bodies.push(record.body);
+        }
+
+        assert_eq!(bodies, vec!["test"]);
+        assert_eq!(sink.replaced_total.get() as u64, 0);
+    }
+
+    #[test]
+    fn diagnostic_log_record_preserves_parent_occurrences_with_payload_body() {
+        let sink = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);
+        let ctx = test_context();
+
+        sink.handle_event(
+            &ctx,
+            &log_event_with_diagnostic_record(
+                "OpenBMC.0.1.Test",
+                "[]",
+                Some(diagnostic_log_record("payload-a")),
+            ),
+        );
+        sink.handle_event(
+            &ctx,
+            &log_event_with_diagnostic_record(
+                "OpenBMC.0.1.Test",
+                "[]",
+                Some(diagnostic_log_record("payload-b")),
+            ),
+        );
+
+        let mut records = Vec::new();
+        while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
+            let body: serde_json::Value =
+                serde_json::from_str(&record.body).expect("valid diagnostic body");
+            let message = body["message"].as_str().map(str::to_string);
+            let diagnostic_data = body["diagnostic_data"].as_str().map(str::to_string);
+
+            assert!(
+                record
+                    .attributes
+                    .iter()
+                    .all(|(key, _)| key.as_ref() != "redfish.diagnostic_data")
+            );
+
+            records.push((message, diagnostic_data));
+        }
+
+        assert_eq!(
+            records,
+            vec![
+                (Some("test".to_string()), Some("payload-a".to_string())),
+                (Some("test".to_string()), Some("payload-b".to_string())),
+            ]
+        );
+        assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
     #[test]

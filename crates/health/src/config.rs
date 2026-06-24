@@ -268,6 +268,10 @@ impl SinksConfig {
                 .log_file
                 .as_option()
                 .is_some_and(|config| config.include_diagnostics)
+            || self
+                .otlp
+                .as_option()
+                .is_some_and(|config| config.include_diagnostics)
     }
 }
 
@@ -312,19 +316,35 @@ impl Default for LogFileSinkConfig {
     }
 }
 
+/// OTLP gRPC sink configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OtlpSinkConfig {
+    /// OTLP gRPC target.
     pub endpoint: String,
+
+    /// Maximum number of events or samples exported per request.
     pub batch_size: usize,
+
+    /// Maximum time to wait before flushing a non-empty batch.
     #[serde(with = "humantime_serde")]
     pub flush_interval: std::time::Duration,
+
+    /// Export Redfish diagnostic payload fields.
+    ///
+    /// Disabled by default because payload bodies are opaque and may be large or
+    /// sensitive. If no diagnostic-capable sink enables diagnostics, collectors
+    /// do not attach diagnostic fields. Diagnostic occurrences use the same
+    /// OTLP export retry path as other log records, but are queued as distinct
+    /// occurrences instead of using latest-wins replacement.
+    pub include_diagnostics: bool,
 }
 
 impl Default for OtlpSinkConfig {
     fn default() -> Self {
         Self {
             endpoint: "http://localhost:4317".to_string(),
+            include_diagnostics: false,
             batch_size: 512,
             flush_interval: std::time::Duration::from_secs(2),
         }
@@ -1561,11 +1581,17 @@ username = "root"
             .merge(Toml::string("include_diagnostics = true"))
             .extract()
             .expect("log file config should parse");
+        let otlp: OtlpSinkConfig = Figment::new()
+            .merge(Toml::string("include_diagnostics = true"))
+            .extract()
+            .expect("otlp config should parse");
 
         assert!(tracing.include_diagnostics);
         assert!(log_file.include_diagnostics);
+        assert!(otlp.include_diagnostics);
         assert!(!TracingSinkConfig::default().include_diagnostics);
         assert!(!LogFileSinkConfig::default().include_diagnostics);
+        assert!(!OtlpSinkConfig::default().include_diagnostics);
     }
 
     #[test]
@@ -1577,6 +1603,7 @@ username = "root"
                 SinksConfig {
                     tracing: Configurable::Enabled(TracingSinkConfig::default()),
                     log_file: Configurable::Enabled(LogFileSinkConfig::default()),
+                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
                     ..SinksConfig::default()
                 },
                 false,
@@ -1597,6 +1624,17 @@ username = "root"
                     log_file: Configurable::Enabled(LogFileSinkConfig {
                         include_diagnostics: true,
                         ..LogFileSinkConfig::default()
+                    }),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "otlp-diagnostics",
+                SinksConfig {
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        include_diagnostics: true,
+                        ..OtlpSinkConfig::default()
                     }),
                     ..SinksConfig::default()
                 },
