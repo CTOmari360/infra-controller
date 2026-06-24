@@ -378,6 +378,7 @@ func TestAPIHostLifecycleProfile_Conversions(t *testing.T) {
 	t.Run("ToDBModelPtr preserves nil-vs-set distinction", func(t *testing.T) {
 		var p *APIHostLifecycleProfile
 		assert.Nil(t, p.ToDBModelPtr())
+		assert.Nil(t, (&APIHostLifecycleProfile{}).ToDBModelPtr())
 
 		ptr := (&APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}).ToDBModelPtr()
 		if assert.NotNil(t, ptr) {
