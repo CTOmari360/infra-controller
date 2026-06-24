@@ -1165,6 +1165,14 @@ impl Config {
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
             tonic::transport::Channel::from_shared(otlp.endpoint.clone())
                 .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
+
+            if otlp.batch_size == 0 {
+                return Err("sinks.otlp.batch_size must be greater than 0".to_string());
+            }
+
+            if otlp.flush_interval.is_zero() {
+                return Err("sinks.otlp.flush_interval must be greater than 0".to_string());
+            }
         }
 
         self.metrics_addr()?;
@@ -1563,6 +1571,18 @@ username = "root"
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
             endpoint: "not a valid uri\n".to_string(),
+            ..OtlpSinkConfig::default()
+        });
+        assert!(config.validate().is_err());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            batch_size: 0,
+            ..OtlpSinkConfig::default()
+        });
+        assert!(config.validate().is_err());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            flush_interval: Duration::from_secs(0),
             ..OtlpSinkConfig::default()
         });
         assert!(config.validate().is_err());
