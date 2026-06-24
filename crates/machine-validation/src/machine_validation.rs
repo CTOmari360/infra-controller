@@ -27,6 +27,7 @@ use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 use tracing::{error, info, trace};
 
 use crate::{
@@ -40,9 +41,60 @@ pub const DEFAULT_TIMEOUT: u64 = 3600;
 const MACHINE_VALIDATION_HEARTBEAT_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(30);
 
-async fn stop_machine_validation_heartbeat(heartbeat_task: tokio::task::JoinHandle<()>) {
-    heartbeat_task.abort();
-    let _ = heartbeat_task.await;
+struct MachineValidationExecution {
+    result: rpc::forge::MachineValidationResult,
+    heartbeat: Option<MachineValidationHeartbeatGuard>,
+}
+
+impl MachineValidationExecution {
+    fn without_heartbeat(result: rpc::forge::MachineValidationResult) -> Self {
+        Self {
+            result,
+            heartbeat: None,
+        }
+    }
+
+    fn with_heartbeat(
+        result: rpc::forge::MachineValidationResult,
+        heartbeat: MachineValidationHeartbeatGuard,
+    ) -> Self {
+        Self {
+            result,
+            heartbeat: Some(heartbeat),
+        }
+    }
+}
+
+struct MachineValidationHeartbeatGuard {
+    task: Option<JoinHandle<()>>,
+}
+
+impl MachineValidationHeartbeatGuard {
+    fn new(task: JoinHandle<()>) -> Self {
+        Self { task: Some(task) }
+    }
+
+    async fn stop(mut self) {
+        let Some(task) = self.task.take() else {
+            return;
+        };
+
+        task.abort();
+        match task.await {
+            Ok(()) => {}
+            Err(e) if e.is_cancelled() => {}
+            Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+            Err(e) => error!(error = %e, "machine validation heartbeat task failed"),
+        }
+    }
+}
+
+impl Drop for MachineValidationHeartbeatGuard {
+    fn drop(&mut self) {
+        if let Some(task) = &self.task {
+            task.abort();
+        }
+    }
 }
 
 impl MachineValidation {
@@ -172,14 +224,20 @@ impl MachineValidation {
                     .heartbeat_machine_validation_run(validation_id, Some(test_id.clone()))
                     .await
                 {
-                    Ok(true) => trace!("sent machine validation heartbeat"),
+                    Ok(true) => {
+                        trace!(%validation_id, test_id = %test_id, "sent machine validation heartbeat")
+                    }
                     Ok(false) => {
                         error!(
+                            %validation_id,
+                            test_id = %test_id,
                             "machine validation heartbeat was rejected because run or attempt is no longer active"
                         );
                         return;
                     }
-                    Err(e) => error!("failed to send machine validation heartbeat: {}", e),
+                    Err(e) => {
+                        error!(%validation_id, test_id = %test_id, error = %e, "failed to send machine validation heartbeat")
+                    }
                 }
             }
         })
@@ -287,7 +345,7 @@ impl MachineValidation {
         test: &rpc::forge::MachineValidationTest,
         in_context: String,
         validation_id: MachineValidationId,
-    ) -> Option<rpc::forge::MachineValidationResult> {
+    ) -> MachineValidationExecution {
         let mut mc_result = rpc::forge::MachineValidationResult {
             test_id: Some(test.test_id.clone()),
             name: test.name.clone(),
@@ -303,22 +361,36 @@ impl MachineValidation {
             .heartbeat_machine_validation_run(validation_id, Some(test.test_id.clone()))
             .await
         {
-            Ok(true) => trace!("sent initial machine validation heartbeat"),
+            Ok(true) => trace!(
+                %validation_id,
+                test_id = %test.test_id,
+                "sent initial machine validation heartbeat"
+            ),
             Ok(false) => {
                 let now = Utc::now();
-                error!("initial machine validation heartbeat was rejected");
+                error!(
+                    %validation_id,
+                    test_id = %test.test_id,
+                    "initial machine validation heartbeat was rejected"
+                );
                 mc_result.start_time = Some(now.into());
                 mc_result.end_time = Some(now.into());
                 mc_result.std_err = "Machine validation heartbeat was rejected because run or attempt is no longer active".to_owned();
                 mc_result.std_out = "Skipped: Machine validation heartbeat was rejected".to_owned();
                 mc_result.exit_code = 0;
-                return Some(mc_result);
+                return MachineValidationExecution::without_heartbeat(mc_result);
             }
-            Err(e) => error!("failed to send initial machine validation heartbeat: {}", e),
+            Err(e) => error!(
+                %validation_id,
+                test_id = %test.test_id,
+                error = %e,
+                "failed to send initial machine validation heartbeat"
+            ),
         }
-        let heartbeat_task = self
-            .clone()
-            .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone());
+        let heartbeat = MachineValidationHeartbeatGuard::new(
+            self.clone()
+                .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone()),
+        );
         if test.external_config_file.is_some() {
             let file_name = test.external_config_file.clone().unwrap_or_default();
             match self
@@ -333,8 +405,7 @@ impl MachineValidation {
                     mc_result.std_err = format!("Error {e}");
                     mc_result.std_out = format!("Skipped: Error {e}");
                     mc_result.exit_code = 0;
-                    stop_machine_validation_heartbeat(heartbeat_task).await;
-                    return Some(mc_result);
+                    return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
                 }
             }
         }
@@ -360,8 +431,7 @@ impl MachineValidation {
                         mc_result.std_err = result.stderr;
                         mc_result.std_out = "Skipped : Pre condition failed".to_owned();
                         mc_result.exit_code = 0;
-                        stop_machine_validation_heartbeat(heartbeat_task).await;
-                        return Some(mc_result);
+                        return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
                     }
                 }
                 Err(e) => {
@@ -370,8 +440,7 @@ impl MachineValidation {
                     mc_result.std_err = e.to_string();
                     mc_result.std_out = "Skipped : Pre condition failed".to_owned();
                     mc_result.exit_code = 0;
-                    stop_machine_validation_heartbeat(heartbeat_task).await;
-                    return Some(mc_result);
+                    return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
                 }
             }
         }
@@ -427,9 +496,8 @@ impl MachineValidation {
             .env("MACHINE_ID".to_owned(), machine_id.to_string())
             .output_with_timeout()
             .await;
-        stop_machine_validation_heartbeat(heartbeat_task).await;
 
-        match command_result {
+        let result = match command_result {
             Ok(result) => {
                 let mut stdout_str = result.stdout;
                 let mut stderr_str = result.stderr;
@@ -469,7 +537,7 @@ impl MachineValidation {
                     stdout_str
                 };
                 mc_result.exit_code = result.exit_code;
-                Some(mc_result)
+                mc_result
             }
             Err(e) => {
                 mc_result.start_time = Some(Utc::now().into());
@@ -477,9 +545,11 @@ impl MachineValidation {
                 mc_result.std_err = e.to_string();
                 mc_result.std_out = e.to_string();
                 mc_result.exit_code = -1;
-                Some(mc_result)
+                mc_result
             }
-        }
+        };
+
+        MachineValidationExecution::with_heartbeat(result, heartbeat)
     }
 
     pub(crate) async fn update_machine_validation_run(
@@ -524,7 +594,7 @@ impl MachineValidation {
                 {
                     continue;
                 }
-                let result = self
+                let execution = self
                     .clone()
                     .execute_machinevalidation_command(
                         machine_id,
@@ -533,7 +603,12 @@ impl MachineValidation {
                         validation_id,
                     )
                     .await;
-                match self.clone().persist(result).await {
+                let MachineValidationExecution { result, heartbeat } = execution;
+                let persist_result = self.clone().persist(Some(result)).await;
+                if let Some(heartbeat) = heartbeat {
+                    heartbeat.stop().await;
+                }
+                match persist_result {
                     Ok(_) => info!("Successfully sent to api server - {}", test.name),
                     Err(e) => error!("{}", e.to_string()),
                 }
