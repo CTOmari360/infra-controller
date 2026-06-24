@@ -554,35 +554,45 @@ pub(crate) async fn heartbeat_machine_validation_run(
         .validation_id
         .as_ref()
         .ok_or(CarbideError::MissingArgument("validation id"))?;
-    let run_item_id = req
-        .run_item_id
-        .as_ref()
-        .map(|id| {
-            uuid::Uuid::try_from(id)
-                .map(MachineValidationRunItemId::from)
-                .map_err(CarbideError::from)
-        })
-        .transpose()?;
-    let attempt_id = req
-        .attempt_id
-        .as_ref()
-        .map(|id| {
-            uuid::Uuid::try_from(id)
-                .map(MachineValidationAttemptId::from)
-                .map_err(CarbideError::from)
-        })
-        .transpose()?;
+    let mut test_id = None;
+    let mut run_item_id = None;
+    let mut attempt_id = None;
+    match req.target {
+        Some(rpc::machine_validation_heartbeat_request::Target::RunItemId(id)) => {
+            run_item_id = Some(
+                uuid::Uuid::try_from(&id)
+                    .map(MachineValidationRunItemId::from)
+                    .map_err(CarbideError::from)?,
+            );
+        }
+        Some(rpc::machine_validation_heartbeat_request::Target::AttemptId(id)) => {
+            attempt_id = Some(
+                uuid::Uuid::try_from(&id)
+                    .map(MachineValidationAttemptId::from)
+                    .map_err(CarbideError::from)?,
+            );
+        }
+        Some(rpc::machine_validation_heartbeat_request::Target::TestId(value)) => {
+            test_id = Some(value);
+        }
+        None => {}
+    }
+
     let mut txn = api.txn_begin().await?;
     let accepted = db::machine_validation_execution::record_heartbeat(
         &mut txn,
         validation_id,
         run_item_id.as_ref(),
         attempt_id.as_ref(),
-        req.test_id.as_deref(),
+        test_id.as_deref(),
         chrono::Utc::now(),
     )
     .await?;
-    txn.commit().await?;
+    if accepted {
+        txn.commit().await?;
+    } else {
+        txn.rollback().await?;
+    }
 
     Ok(tonic::Response::new(
         rpc::MachineValidationHeartbeatResponse { accepted },

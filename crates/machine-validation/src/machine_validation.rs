@@ -40,6 +40,11 @@ pub const DEFAULT_TIMEOUT: u64 = 3600;
 const MACHINE_VALIDATION_HEARTBEAT_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(30);
 
+async fn stop_machine_validation_heartbeat(heartbeat_task: tokio::task::JoinHandle<()>) {
+    heartbeat_task.abort();
+    let _ = heartbeat_task.await;
+}
+
 impl MachineValidation {
     pub(crate) async fn get_container_auth_config(self) -> Result<(), MachineValidationError> {
         let file_name = "/root/.docker/config.json".to_string();
@@ -138,9 +143,8 @@ impl MachineValidation {
             .heartbeat_machine_validation_run(tonic::Request::new(
                 rpc::forge::MachineValidationHeartbeatRequest {
                     validation_id: Some(validation_id),
-                    run_item_id: None,
-                    attempt_id: None,
-                    test_id,
+                    target: test_id
+                        .map(rpc::forge::machine_validation_heartbeat_request::Target::TestId),
                 },
             ))
             .await
@@ -300,9 +304,21 @@ impl MachineValidation {
             .await
         {
             Ok(true) => trace!("sent initial machine validation heartbeat"),
-            Ok(false) => error!("initial machine validation heartbeat was rejected"),
+            Ok(false) => {
+                let now = Utc::now();
+                error!("initial machine validation heartbeat was rejected");
+                mc_result.start_time = Some(now.into());
+                mc_result.end_time = Some(now.into());
+                mc_result.std_err = "Machine validation heartbeat was rejected because run or attempt is no longer active".to_owned();
+                mc_result.std_out = "Skipped: Machine validation heartbeat was rejected".to_owned();
+                mc_result.exit_code = 0;
+                return Some(mc_result);
+            }
             Err(e) => error!("failed to send initial machine validation heartbeat: {}", e),
         }
+        let heartbeat_task = self
+            .clone()
+            .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone());
         if test.external_config_file.is_some() {
             let file_name = test.external_config_file.clone().unwrap_or_default();
             match self
@@ -317,6 +333,7 @@ impl MachineValidation {
                     mc_result.std_err = format!("Error {e}");
                     mc_result.std_out = format!("Skipped: Error {e}");
                     mc_result.exit_code = 0;
+                    stop_machine_validation_heartbeat(heartbeat_task).await;
                     return Some(mc_result);
                 }
             }
@@ -343,6 +360,7 @@ impl MachineValidation {
                         mc_result.std_err = result.stderr;
                         mc_result.std_out = "Skipped : Pre condition failed".to_owned();
                         mc_result.exit_code = 0;
+                        stop_machine_validation_heartbeat(heartbeat_task).await;
                         return Some(mc_result);
                     }
                 }
@@ -352,6 +370,7 @@ impl MachineValidation {
                     mc_result.std_err = e.to_string();
                     mc_result.std_out = "Skipped : Pre condition failed".to_owned();
                     mc_result.exit_code = 0;
+                    stop_machine_validation_heartbeat(heartbeat_task).await;
                     return Some(mc_result);
                 }
             }
@@ -397,9 +416,6 @@ impl MachineValidation {
             Err(_) => error!("Failed to create file"),
         }
 
-        let heartbeat_task = self
-            .clone()
-            .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone());
         let command_result = TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
             .timeout(test.timeout.unwrap_or(7200).try_into().unwrap())
@@ -411,8 +427,7 @@ impl MachineValidation {
             .env("MACHINE_ID".to_owned(), machine_id.to_string())
             .output_with_timeout()
             .await;
-        heartbeat_task.abort();
-        let _ = heartbeat_task.await;
+        stop_machine_validation_heartbeat(heartbeat_task).await;
 
         match command_result {
             Ok(result) => {

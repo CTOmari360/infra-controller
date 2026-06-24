@@ -1607,9 +1607,11 @@ async fn test_machine_validation_m1_persists_selected_test_and_idempotent_result
         .heartbeat_machine_validation_run(tonic::Request::new(
             rpc::forge::MachineValidationHeartbeatRequest {
                 validation_id: Some(validation_id),
-                run_item_id: None,
-                attempt_id: None,
-                test_id: Some("unknown_machine_validation_test".to_string()),
+                target: Some(
+                    rpc::forge::machine_validation_heartbeat_request::Target::TestId(
+                        "unknown_machine_validation_test".to_string(),
+                    ),
+                ),
             },
         ))
         .await?
@@ -1621,9 +1623,11 @@ async fn test_machine_validation_m1_persists_selected_test_and_idempotent_result
         .heartbeat_machine_validation_run(tonic::Request::new(
             rpc::forge::MachineValidationHeartbeatRequest {
                 validation_id: Some(validation_id),
-                run_item_id: None,
-                attempt_id: None,
-                test_id: Some(selected_test.test_id.clone()),
+                target: Some(
+                    rpc::forge::machine_validation_heartbeat_request::Target::TestId(
+                        selected_test.test_id.clone(),
+                    ),
+                ),
             },
         ))
         .await?
@@ -1670,6 +1674,30 @@ async fn test_machine_validation_m1_persists_selected_test_and_idempotent_result
             },
         ))
         .await?;
+
+    let previous_run_heartbeat =
+        db::machine_validation::find_by_id(&env.pool, &validation_id).await?;
+    let rejected_heartbeat = env
+        .api
+        .heartbeat_machine_validation_run(tonic::Request::new(
+            rpc::forge::MachineValidationHeartbeatRequest {
+                validation_id: Some(validation_id),
+                target: Some(
+                    rpc::forge::machine_validation_heartbeat_request::Target::TestId(
+                        selected_test.test_id.clone(),
+                    ),
+                ),
+            },
+        ))
+        .await?
+        .into_inner();
+    assert!(!rejected_heartbeat.accepted);
+    let run_after_rejected_heartbeat =
+        db::machine_validation::find_by_id(&env.pool, &validation_id).await?;
+    assert_eq!(
+        run_after_rejected_heartbeat.last_heartbeat_at,
+        previous_run_heartbeat.last_heartbeat_at
+    );
 
     let replayed_result = rpc::forge::MachineValidationResult {
         name: "changed replay name".to_string(),
@@ -1875,9 +1903,11 @@ async fn test_machine_validation_manager_reconciles_stale_active_attempt(
         .heartbeat_machine_validation_run(tonic::Request::new(
             rpc::forge::MachineValidationHeartbeatRequest {
                 validation_id: Some(validation_id),
-                run_item_id: None,
-                attempt_id: None,
-                test_id: Some(selected_test.test_id.clone()),
+                target: Some(
+                    rpc::forge::machine_validation_heartbeat_request::Target::TestId(
+                        selected_test.test_id.clone(),
+                    ),
+                ),
             },
         ))
         .await?

@@ -6325,9 +6325,11 @@ message MachineValidationAttempt {
 
 message MachineValidationHeartbeatRequest {
   common.MachineValidationId validation_id = 1;
-  optional common.UUID run_item_id = 2;
-  optional common.UUID attempt_id = 3;
-  optional string test_id = 4;
+  oneof target {
+    common.UUID run_item_id = 2;
+    common.UUID attempt_id = 3;
+    string test_id = 4;
+  }
 }
 
 message MachineValidationHeartbeatResponse {

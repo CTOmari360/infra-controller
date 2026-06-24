@@ -36,6 +36,10 @@ use tokio_util::sync::CancellationToken;
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 
+// The Scout heartbeat interval is 30 seconds. Keep heartbeat-based stale reconciliation above that
+// cadence so a low configured stale timeout does not fail healthy active runs between heartbeats.
+const MIN_HEARTBEAT_STALE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,
     config: MachineValidationConfig,
@@ -99,6 +103,7 @@ impl MachineValidationManager {
 
         let mut txn = db::Transaction::begin(&self.database_connection).await?;
         let now = chrono::Utc::now();
+        let heartbeat_stale_timeout = heartbeat_stale_timeout(self.config.stale_run_timeout);
 
         for validation in db::machine_validation::find_active(&mut txn).await? {
             reconcile_terminal_run_items(txn.as_pgconn(), validation).await?;
@@ -106,12 +111,15 @@ impl MachineValidationManager {
 
         let stale_attempts = db::machine_validation_execution::find_stale_active_attempts(
             &mut txn,
-            self.config.stale_run_timeout,
+            heartbeat_stale_timeout,
             now,
         )
         .await?;
 
-        for stale_attempt in stale_attempts {
+        for stale_attempt in stale_attempts
+            .into_iter()
+            .filter(|attempt| attempt.last_heartbeat_at.is_some())
+        {
             if reconcile_stale_attempt(txn.as_pgconn(), stale_attempt, now).await? {
                 metrics.stale_validation += 1;
             }
@@ -120,6 +128,7 @@ impl MachineValidationManager {
         let stale_validations = stale_validations(
             db::machine_validation::find_active(&mut txn).await?,
             self.config.stale_run_timeout,
+            heartbeat_stale_timeout,
             now,
         );
 
@@ -193,17 +202,23 @@ fn active_validation_age_seconds(
         .map(|age| age.as_secs())
 }
 
+fn heartbeat_stale_timeout(configured_timeout: std::time::Duration) -> std::time::Duration {
+    configured_timeout.max(MIN_HEARTBEAT_STALE_TIMEOUT)
+}
+
 fn stale_validations(
     validations: Vec<MachineValidation>,
     stale_run_timeout: std::time::Duration,
+    heartbeat_stale_timeout: std::time::Duration,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<MachineValidation> {
     validations
         .into_iter()
         .filter(|validation| {
             let stale_run_timeout = chrono::Duration::from_std(stale_run_timeout).ok();
+            let heartbeat_stale_timeout = chrono::Duration::from_std(heartbeat_stale_timeout).ok();
             if let (Some(last_heartbeat_at), Some(stale_run_timeout)) =
-                (validation.last_heartbeat_at, stale_run_timeout)
+                (validation.last_heartbeat_at, heartbeat_stale_timeout)
             {
                 return last_heartbeat_at + stale_run_timeout < now;
             }
@@ -473,7 +488,12 @@ mod tests {
         let stale = validation_started_at(now - chrono::Duration::seconds(11), 5);
         let active = validation_started_at(now - chrono::Duration::seconds(9), 5);
 
-        let stale = stale_validations(vec![stale, active], std::time::Duration::from_secs(5), now);
+        let stale = stale_validations(
+            vec![stale, active],
+            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(90),
+            now,
+        );
 
         assert_eq!(stale.len(), 1);
     }
