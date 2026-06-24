@@ -157,7 +157,8 @@ controls the YAML→JSON name mapping.
     "renew-timer": {{ default 900 $k.renewTimer | toJson }},
     "rebind-timer": {{ default 1800 $k.rebindTimer | toJson }},
     "valid-lifetime": {{ default 3600 $k.validLifetime | toJson }},
-    {{- /*
+    "decline-probation-period": {{ default 900 $k.declineProbationPeriod | toJson }},
+    {{/*
       Hook parameters — write both nico-* and carbide-* keys with identical
       values so the kea hook library (crates/dhcp/src/kea/loader.cc still
       reads carbide-*) and any future nico-named build both find the value
