@@ -198,6 +198,7 @@ func (csh CreateSiteHandler) Handle(c echo.Context) error {
 		createdSSD, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: st.ID.String(), Status: *cutil.GetPtr(cdbm.SiteStatusPending), Message: cutil.GetPtr("received site creation request, pending pairing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Site", nil)
 		}
 		if createdSSD == nil {
 			logger.Error().Msg("Status Detail DB entry not returned from Create")
@@ -524,6 +525,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 			_, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: siteID.String(), Status: *status, Message: statusMessage})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Site", nil)
 			}
 		}
 

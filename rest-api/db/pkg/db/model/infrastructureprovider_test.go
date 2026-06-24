@@ -196,13 +196,12 @@ func TestInfrastructureProviderSQLDAO_GetAllByOrg(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 			got, err := ipsd.GetAllByOrg(tt.args.ctx, nil, tt.args.org, nil)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.GetAllByOrg() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if len(got) != len(tt.want) {
-				t.Errorf("InfrastructureProviderSQLDAO.GetAllByOrg() gotlen = %v, wantlen = %v", len(got), len(tt.want))
+			if tt.wantErr {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				require.NotNil(t, got)
+				assert.Equal(t, len(got), len(tt.want))
 			}
 
 			if tt.verifyChildSpanner {
@@ -280,30 +279,19 @@ func TestInfrastructureProviderSQLDAO_Create(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 			got, err := ipsd.Create(tt.args.ctx, nil, tt.args.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.Create() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				require.NotNil(t, got)
 			}
 
-			if got.Name != tt.want.Name {
-				t.Errorf("Name = %v, want %v", got.Name, tt.want.Name)
-			}
-
-			if *got.DisplayName != *tt.want.DisplayName {
-				t.Errorf("DisplayName = %v, want %v", *got.DisplayName, *tt.want.DisplayName)
-			}
-
-			if got.Org != tt.want.Org {
-				t.Errorf("Org = %v, want %v", got.Org, tt.want.Org)
-			}
-
-			if got.OrgDisplayName != nil && *got.OrgDisplayName != *tt.want.OrgDisplayName {
-				t.Errorf("OrgDisplayName = %v, want %v", *got.OrgDisplayName, *tt.want.OrgDisplayName)
-			}
-
-			if got.CreatedBy != tt.want.CreatedBy {
-				t.Errorf("CreatedBy = %v, want %v", got.CreatedBy, tt.want.CreatedBy)
-			}
+			assert.Equal(t, tt.want.Name, got.Name)
+			assert.Equal(t, *tt.want.DisplayName, *got.DisplayName)
+			assert.Equal(t, tt.want.Org, got.Org)
+			assert.Equal(t, *tt.want.OrgDisplayName, *got.OrgDisplayName)
+			assert.Equal(t, tt.want.CreatedBy, got.CreatedBy)
+			assert.NotEqual(t, tt.want.Updated.String(), got.Updated.String())
 
 			if tt.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
@@ -396,26 +384,17 @@ func TestInfrastructureProviderSQLDAO_Update(t *testing.T) {
 				dbSession: tt.fields.dbSession,
 			}
 			got, err := ipsd.Update(tt.args.ctx, nil, tt.args.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.Update() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				require.NotNil(t, got)
 			}
 
-			if got.Name != tt.want.Name {
-				t.Errorf("Name = %v, want %v", got.Name, tt.want.Name)
-			}
-
-			if *got.DisplayName != *tt.want.DisplayName {
-				t.Errorf("DisplayName = %v, want %v", *got.DisplayName, *tt.want.DisplayName)
-			}
-
-			if got.Org != tt.want.Org {
-				t.Errorf("Org = %v, want %v", got.Org, tt.want.Org)
-			}
-
-			if got.Updated.String() == tt.want.Updated.String() {
-				t.Errorf("got.Updated = %v, want different value", got.Updated)
-			}
+			assert.Equal(t, tt.want.Name, got.Name)
+			assert.Equal(t, *tt.want.DisplayName, *got.DisplayName)
+			assert.Equal(t, tt.want.Org, got.Org)
+			assert.NotEqual(t, tt.want.Updated.String(), got.Updated.String())
 
 			if tt.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
@@ -488,8 +467,11 @@ func TestInfrastructureProviderSQLDAO_Delete(t *testing.T) {
 			ipsd := InfrastructureProviderSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			if err := ipsd.Delete(tt.args.ctx, nil, tt.args.id); (err != nil) != tt.wantErr {
-				t.Errorf("InfrastructureProviderSQLDAO.Delete() error = %v, wantErr %v", err, tt.wantErr)
+			derr := ipsd.Delete(tt.args.ctx, nil, tt.args.id)
+			if tt.wantErr {
+				require.NotNil(t, derr)
+			} else {
+				require.Nil(t, derr)
 			}
 
 			dip := &InfrastructureProvider{}
@@ -498,9 +480,7 @@ func TestInfrastructureProviderSQLDAO_Delete(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if dip.Deleted == nil {
-				t.Errorf("Failed to soft-delete InfrastructureProvider")
-			}
+			assert.NotNil(t, dip.Deleted)
 
 			if tt.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)

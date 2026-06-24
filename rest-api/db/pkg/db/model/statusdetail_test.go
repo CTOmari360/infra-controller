@@ -511,30 +511,18 @@ func TestStatusDetailSQLDAO_Update(t *testing.T) {
 			}
 
 			got, err := sddao.Update(tt.args.ctx, nil, tt.args.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("StatusDetailSQLDAO.Update() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+				require.NotNil(t, got)
 			}
 
-			if got.EntityID != tt.want.EntityID {
-				t.Errorf("StatusDetailSQLDAO.Update() EntityID got = %v, want %v", got.EntityID, tt.want.EntityID)
-			}
-
-			if got.Status != tt.want.Status {
-				t.Errorf("StatusDetailSQLDAO.Update() Status got = %v, want %v", got.Status, tt.want.Status)
-			}
-
-			if *got.Message != *tt.want.Message {
-				t.Errorf("StatusDetailSQLDAO.Update() Message got = %v, want %v", got.Message, tt.want.Message)
-			}
-
-			if got.Count != 2 {
-				t.Errorf("StatusDetailSQLDAO.Update() Count got = %v, want %v", got.Count, 2)
-			}
-
-			if got.Updated.String() == tt.want.Updated.String() {
-				t.Errorf("StatusDetailSQLDAO.Update() Updated = %v, want = %v", got.Updated, tt.want.Updated)
-			}
+			assert.Equal(t, tt.want.EntityID, got.EntityID)
+			assert.Equal(t, tt.want.Status, got.Status)
+			assert.Equal(t, *tt.want.Message, *got.Message)
+			assert.Equal(t, 2, got.Count)
+			assert.NotEqual(t, tt.want.Updated.String(), got.Updated.String())
 
 			if tt.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
