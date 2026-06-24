@@ -16,7 +16,6 @@
  */
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use prometheus::Counter;
 
@@ -50,7 +49,6 @@ pub(crate) struct OtlpSink {
     metrics_replaced_total: Counter,
     mapper: Arc<dyn RedfishEventMapper>,
     include_diagnostics: bool,
-    diagnostic_sequence: AtomicU64,
 }
 
 #[cfg(feature = "bench-hooks")]
@@ -61,7 +59,6 @@ pub struct OtlpSink {
     metrics_replaced_total: Counter,
     mapper: Arc<dyn RedfishEventMapper>,
     include_diagnostics: bool,
-    diagnostic_sequence: AtomicU64,
 }
 
 /// Returns whether an event belongs in the logs drain.
@@ -144,7 +141,6 @@ impl OtlpSink {
             metrics_replaced_total,
             mapper,
             include_diagnostics: config.include_diagnostics,
-            diagnostic_sequence: AtomicU64::new(0),
         })
     }
 }
@@ -166,7 +162,6 @@ impl OtlpSink {
             metrics_replaced_total: Counter::new("bench_metrics_replaced", "bench").unwrap(),
             mapper,
             include_diagnostics,
-            diagnostic_sequence: AtomicU64::new(0),
         }
     }
 }
@@ -207,26 +202,15 @@ impl DataSink for OtlpSink {
 
         let (key, event, count_replacements) = match event {
             CollectorEvent::Log(record) => {
-                let has_included_diagnostics =
-                    self.include_diagnostics && record.diagnostic_record.is_some();
+                let key = self
+                    .mapper
+                    .queue_key(&context.endpoint_key, &record.attributes);
 
                 let log_record = record
                     .emitted_log_record(self.include_diagnostics)
                     .into_owned();
 
-                let key = if has_included_diagnostics {
-                    let sequence = self.diagnostic_sequence.fetch_add(1, Ordering::Relaxed);
-                    format!("{}|diagnostic|{sequence}", context.endpoint_key)
-                } else {
-                    self.mapper
-                        .queue_key(&context.endpoint_key, &record.attributes)
-                };
-
-                (
-                    key,
-                    CollectorEvent::Log(Box::new(log_record)),
-                    !has_included_diagnostics,
-                )
+                (key, CollectorEvent::Log(Box::new(log_record)), true)
             }
             CollectorEvent::HealthReport(report) => {
                 let key = format!(
@@ -520,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_log_record_preserves_parent_occurrences_with_payload_body() {
+    fn diagnostic_log_record_deduplicates_parent_events_with_payload_body() {
         let sink = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);
         let ctx = test_context();
 
@@ -541,31 +525,26 @@ mod tests {
             ),
         );
 
-        let mut records = Vec::new();
-        while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
-            let body: serde_json::Value =
-                serde_json::from_str(&record.body).expect("valid diagnostic body");
-            let message = body["message"].as_str().map(str::to_string);
-            let diagnostic_data = body["diagnostic_data"].as_str().map(str::to_string);
+        let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() else {
+            panic!("expected queued diagnostic log");
+        };
 
-            assert!(
-                record
-                    .attributes
-                    .iter()
-                    .all(|(key, _)| key.as_ref() != "redfish.diagnostic_data")
-            );
+        let body: serde_json::Value =
+            serde_json::from_str(&record.body).expect("valid diagnostic body");
+        let message = body["message"].as_str().map(str::to_string);
+        let diagnostic_data = body["diagnostic_data"].as_str().map(str::to_string);
 
-            records.push((message, diagnostic_data));
-        }
+        assert!(sink.queue.pop().is_none());
+        assert_eq!(message, Some("test".to_string()));
+        assert_eq!(diagnostic_data, Some("payload-b".to_string()));
+        assert_eq!(sink.replaced_total.get() as u64, 1);
 
-        assert_eq!(
-            records,
-            vec![
-                (Some("test".to_string()), Some("payload-a".to_string())),
-                (Some("test".to_string()), Some("payload-b".to_string())),
-            ]
+        assert!(
+            record
+                .attributes
+                .iter()
+                .all(|(key, _)| key.as_ref() != "redfish.diagnostic_data")
         );
-        assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
     #[test]

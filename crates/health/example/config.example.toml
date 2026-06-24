@@ -99,9 +99,8 @@ endpoint = "http://localhost:4317"
 
 # Include Redfish diagnostic payload fields in OTLP logs.
 # If every diagnostic-capable sink leaves diagnostics off, collectors do not
-# attach them. Diagnostic occurrences use the same OTLP export retry path as
-# other log records, but are queued as distinct occurrences instead of using
-# latest-wins replacement.
+# attach them. Diagnostic fields are emitted with their parent log record and
+# use the same latest-wins queue replacement.
 include_diagnostics = false
 
 batch_size = 512
