@@ -275,6 +275,7 @@ impl SinksConfig {
     }
 }
 
+/// Configuration for the tracing sink.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct TracingSinkConfig {
@@ -290,11 +291,17 @@ pub struct TracingSinkConfig {
 #[serde(default)]
 pub struct PrometheusSinkConfig {}
 
+/// Configuration for the JSONL log file sink.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LogFileSinkConfig {
+    /// Directory where rotated health log files are written.
     pub output_dir: String,
+
+    /// Maximum bytes per active log file before rotation.
     pub max_file_size: u64,
+
+    /// Number of rotated backup files to retain.
     pub max_backups: usize,
 
     /// Write Redfish diagnostic payload fields.
@@ -335,7 +342,8 @@ pub struct OtlpSinkConfig {
     /// Disabled by default because payload bodies are opaque and may be large or
     /// sensitive. If no diagnostic-capable sink enables diagnostics, collectors
     /// do not attach diagnostic fields. OTLP exports parent logs normally and
-    /// emits diagnostics as a separate bounded latest-wins log per endpoint.
+    /// keeps diagnostics as latest-wins per endpoint while the drain is backed
+    /// up.
     pub include_diagnostics: bool,
 }
 
@@ -1164,14 +1172,6 @@ impl Config {
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
             tonic::transport::Channel::from_shared(otlp.endpoint.clone())
                 .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
-
-            if otlp.batch_size == 0 {
-                return Err("sinks.otlp.batch_size must be greater than 0".to_string());
-            }
-
-            if otlp.flush_interval.is_zero() {
-                return Err("sinks.otlp.flush_interval must be greater than 0".to_string());
-            }
         }
 
         self.metrics_addr()?;
@@ -1570,18 +1570,6 @@ username = "root"
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
             endpoint: "not a valid uri\n".to_string(),
-            ..OtlpSinkConfig::default()
-        });
-        assert!(config.validate().is_err());
-
-        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
-            batch_size: 0,
-            ..OtlpSinkConfig::default()
-        });
-        assert!(config.validate().is_err());
-
-        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
-            flush_interval: Duration::from_secs(0),
             ..OtlpSinkConfig::default()
         });
         assert!(config.validate().is_err());

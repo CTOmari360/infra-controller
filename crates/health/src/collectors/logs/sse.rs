@@ -32,7 +32,9 @@ use crate::collectors::runtime::{EventStream, StreamingCollector, open_sse_strea
 use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, LogRecord};
 
+/// Configuration for the Redfish SSE log collector.
 pub struct SseLogCollectorConfig {
+    /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
 }
 

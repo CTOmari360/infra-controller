@@ -163,10 +163,10 @@ impl OtlpSink {
             return;
         }
 
-        // Keep diagnostics on the same latest-wins queue policy as other logs.
-        // This bounds memory if OTLP export slows down.
-        let diagnostic_key = format!("{}|diagnostic", context.endpoint_key);
         let diagnostic_record = record.emitted_log_record(true).into_owned();
+        // Follow the existing OTLP queue policy: diagnostics are latest-wins
+        // per endpoint while the drain is backed up.
+        let diagnostic_key = format!("{}|diagnostic", context.endpoint_key);
         let diagnostic_event = CollectorEvent::Log(Box::new(diagnostic_record));
         if self
             .queue
@@ -532,9 +532,9 @@ mod tests {
         assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
-    /// Verifies diagnostic log bodies use bounded latest-wins deduplication.
+    /// Verifies parent logs keep mapper dedup while diagnostics stay bounded.
     #[test]
-    fn diagnostic_log_records_deduplicate_by_endpoint() {
+    fn diagnostic_log_record_uses_latest_wins_by_endpoint() {
         let sink = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);
         let ctx = test_context();
 
@@ -554,6 +554,14 @@ mod tests {
                 Some(diagnostic_log_record("payload-b")),
             ),
         );
+        sink.handle_event(
+            &ctx,
+            &log_event_with_diagnostic_record(
+                "OpenBMC.0.1.Test",
+                "[]",
+                Some(diagnostic_log_record("payload-c")),
+            ),
+        );
 
         let mut records = Vec::new();
         while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
@@ -563,10 +571,13 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].body, "test");
 
-        let body: serde_json::Value =
+        let diagnostic_body: serde_json::Value =
             serde_json::from_str(&records[1].body).expect("valid diagnostic body");
-        assert_eq!(body["diagnostic_data"].as_str(), Some("payload-b"));
-        assert_eq!(sink.replaced_total.get() as u64, 2);
+        assert_eq!(
+            diagnostic_body["diagnostic_data"].as_str(),
+            Some("payload-c")
+        );
+        assert_eq!(sink.replaced_total.get() as u64, 4);
 
         assert!(
             records[0]

@@ -223,6 +223,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
     pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
+    /// Whether log collectors should attach diagnostic payload carriers.
     pub(crate) logs_include_diagnostics: bool,
 }
 

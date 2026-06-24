@@ -188,11 +188,19 @@ pub struct MetricSample {
     pub context: Option<SensorThresholdContext>,
 }
 
+/// Log event emitted by collectors and consumed by sinks.
 #[derive(Clone, Debug)]
 pub struct LogRecord {
+    /// Human-readable log message or emitted structured body.
     pub body: String,
+
+    /// Source-provided severity text.
     pub severity: String,
+
+    /// Sink-visible metadata used for filtering, grouping, and correlation.
     pub attributes: Vec<MetricLabel>,
+
+    /// Optional diagnostic payload carrier kept separate until a sink opts in.
     pub diagnostic_record: Option<DiagnosticLogRecord>,
 }
 
@@ -265,10 +273,14 @@ impl LogRecord {
 /// as attributes for filtering and correlation.
 #[derive(Clone, Debug)]
 pub struct DiagnosticLogRecord {
+    /// Opaque diagnostic payload body, such as base64-encoded CPER text.
     pub body: String,
+
+    /// Redfish diagnostic metadata and parent correlation attributes.
     pub attributes: Vec<MetricLabel>,
 }
 
+/// JSON body emitted when a sink folds diagnostics into a parent log record.
 #[derive(Serialize)]
 struct DiagnosticLogBody<'a> {
     message: &'a str,
@@ -280,6 +292,7 @@ struct DiagnosticLogBody<'a> {
     diagnostic_attributes: Vec<DiagnosticLogBodyAttribute<'a>>,
 }
 
+/// Diagnostic metadata entry embedded in an emitted diagnostic log body.
 #[derive(Serialize)]
 struct DiagnosticLogBodyAttribute<'a> {
     key: &'a str,

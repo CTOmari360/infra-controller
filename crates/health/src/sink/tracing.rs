@@ -18,6 +18,7 @@
 use super::{CollectorEvent, DataSink, EventContext};
 use crate::config::TracingSinkConfig;
 
+/// Sink that writes health events through the process tracing subscriber.
 pub struct TracingSink {
     include_diagnostics: bool,
 }

@@ -144,17 +144,20 @@ mod tests {
 
     use super::*;
 
+    /// Minimal generated-enum stand-in used to verify serde wire spelling.
     #[derive(Serialize)]
     enum TestDiagnosticDataType {
         #[serde(rename = "CPERSection")]
         CperSection,
     }
 
+    /// Input variants exercised by the table-driven diagnostic tests.
     enum DiagnosticInput {
         EnumWireSpelling,
         Record(DiagnosticRecordInput),
     }
 
+    /// Owned test input mirroring the borrowed production payload fields.
     struct DiagnosticRecordInput {
         diagnostic_data: Option<&'static str>,
         diagnostic_data_type: Option<String>,
@@ -166,12 +169,14 @@ mod tests {
         log_entry_id: Option<&'static str>,
     }
 
+    /// Expected output variants from diagnostic helper scenarios.
     #[derive(Debug, PartialEq)]
     enum DiagnosticOutput {
         EnumWireSpelling(Option<String>),
         Record(Option<DiagnosticRecordOutput>),
     }
 
+    /// Owned diagnostic record output used for scenario comparisons.
     #[derive(Debug, PartialEq)]
     struct DiagnosticRecordOutput {
         body: String,

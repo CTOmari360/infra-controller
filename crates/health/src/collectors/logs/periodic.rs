@@ -39,6 +39,8 @@ pub struct LogsCollectorConfig {
     pub state_file_path: PathBuf,
     pub service_refresh_interval: Duration,
     pub data_sink: Option<Arc<dyn DataSink>>,
+
+    /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
 }
 
