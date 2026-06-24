@@ -37,6 +37,8 @@ use crate::{
 };
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
+const MACHINE_VALIDATION_HEARTBEAT_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(30);
 
 impl MachineValidation {
     pub(crate) async fn get_container_auth_config(self) -> Result<(), MachineValidationError> {
@@ -124,6 +126,59 @@ impl MachineValidation {
                 )
             })?;
         Ok(())
+    }
+
+    pub(crate) async fn heartbeat_machine_validation_run(
+        self,
+        validation_id: MachineValidationId,
+        test_id: Option<String>,
+    ) -> Result<bool, MachineValidationError> {
+        let mut client = self.create_forge_client().await?;
+        let response = client
+            .heartbeat_machine_validation_run(tonic::Request::new(
+                rpc::forge::MachineValidationHeartbeatRequest {
+                    validation_id: Some(validation_id),
+                    run_item_id: None,
+                    attempt_id: None,
+                    test_id,
+                },
+            ))
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "heartbeat_machine_validation_run".to_owned(),
+                    e.to_string(),
+                )
+            })?
+            .into_inner();
+        Ok(response.accepted)
+    }
+
+    fn spawn_machine_validation_heartbeat(
+        self,
+        validation_id: MachineValidationId,
+        test_id: String,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(MACHINE_VALIDATION_HEARTBEAT_INTERVAL);
+            loop {
+                interval.tick().await;
+                match self
+                    .clone()
+                    .heartbeat_machine_validation_run(validation_id, Some(test_id.clone()))
+                    .await
+                {
+                    Ok(true) => trace!("sent machine validation heartbeat"),
+                    Ok(false) => {
+                        error!(
+                            "machine validation heartbeat was rejected because run or attempt is no longer active"
+                        );
+                        return;
+                    }
+                    Err(e) => error!("failed to send machine validation heartbeat: {}", e),
+                }
+            }
+        })
     }
 
     pub(crate) async fn get_machine_validation_tests(
@@ -239,9 +294,22 @@ impl MachineValidation {
             validation_id: Some(validation_id),
             ..rpc::forge::MachineValidationResult::default()
         };
+        match self
+            .clone()
+            .heartbeat_machine_validation_run(validation_id, Some(test.test_id.clone()))
+            .await
+        {
+            Ok(true) => trace!("sent initial machine validation heartbeat"),
+            Ok(false) => error!("initial machine validation heartbeat was rejected"),
+            Err(e) => error!("failed to send initial machine validation heartbeat: {}", e),
+        }
         if test.external_config_file.is_some() {
             let file_name = test.external_config_file.clone().unwrap_or_default();
-            match self.get_external_config(file_name.clone(), None).await {
+            match self
+                .clone()
+                .get_external_config(file_name.clone(), None)
+                .await
+            {
                 Ok(()) => trace!("Fetched {} config", file_name),
                 Err(e) => {
                     mc_result.start_time = Some(Utc::now().into());
@@ -329,7 +397,10 @@ impl MachineValidation {
             Err(_) => error!("Failed to create file"),
         }
 
-        match TokioCmd::new("sh")
+        let heartbeat_task = self
+            .clone()
+            .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone());
+        let command_result = TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
             .timeout(test.timeout.unwrap_or(7200).try_into().unwrap())
             .env("CONTEXT".to_owned(), in_context.clone())
@@ -339,8 +410,11 @@ impl MachineValidation {
             )
             .env("MACHINE_ID".to_owned(), machine_id.to_string())
             .output_with_timeout()
-            .await
-        {
+            .await;
+        heartbeat_task.abort();
+        let _ = heartbeat_task.await;
+
+        match command_result {
             Ok(result) => {
                 let mut stdout_str = result.stdout;
                 let mut stderr_str = result.stderr;
