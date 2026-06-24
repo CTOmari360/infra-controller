@@ -82,7 +82,7 @@ The following tag forms appear in the repository:
 
 ## Release Cadence
 
-NICo follows a fixed quarterly cadence with a one-month QA window.
+NICo follows a fixed monthly cadence with a one-month QA window.
 
 We also aim to **avoid releases during major US and international holiday
 periods** — including, but not limited to, the late-December/early-January
@@ -93,17 +93,17 @@ of these windows, the release is rescheduled to the next practical date.
 
 ### Minor Releases (`X.Y.0`)
 
-Every quarter:
+Every month:
 
-1. **Code complete** (last day of December, March, June, September): a new
-   release branch (e.g. `releases/v2.1`) is cut from `main`.
+1. **Code complete** (last day of each month): a new release branch (e.g.
+   `releases/v2.1`) is cut from `main`.
 2. Immediately after the cut, `main` is tagged with `vX.(Y+1).0-pr` to mark
    the start of the next prerelease cycle on `main`.
 3. The release branch is **stabilized and QA tested for one month**. During
    this window, release-candidate tags (e.g. `v2.1.0-rc1`, `v2.1.0-rc2`, …)
    are applied to commits on the branch as QA cycles through them.
-4. **Final minor release** (last day of January, April, July, October): when
-   QA signs off, a `vX.Y.0` tag is cut on the same `releases/vX.Y` branch and
+4. **Final minor release** (last day of the following month): when QA signs
+   off, a `vX.Y.0` tag is cut on the same `releases/vX.Y` branch and
    published as a GitHub release.
 
 In short: minor releases ship one month after code complete.
@@ -111,12 +111,10 @@ In short: minor releases ship one month after code complete.
 ### Patch Releases (`X.Y.Z`)
 
 Patch releases happen on the `releases/vX.Y` branch after the corresponding
-`vX.Y.0` has shipped. The cadence is **about once per month, no less
-frequent than that** — on the last day of the month by default — but
-critical bug fixes (data loss, security, production-blocking regressions)
-may trigger an earlier release outside the normal cadence. "Once per month"
-describes the *floor* of the cadence, not a ceiling on how many patches we
-can cut.
+`vX.Y.0` has shipped. They are cut **as needed** — primarily for critical bug
+fixes (data loss, security, production-blocking regressions) or significant
+issues that cannot wait for the next minor release. There is no fixed patch
+cadence; patches ship when the fixes warrant them.
 
 Patch releases go through their own QA window, scoped to the changes being
 shipped. The mechanics are the same as for a minor release but use a
@@ -174,8 +172,8 @@ When release `vX.Y` passes QA and becomes Current:
 3. The newly Current release (`vX.Y`) begins accepting patch releases under
    the normal bar.
 
-Because the quarterly cadence is fixed, each minor release spends roughly
-three months as Current, three months as Maintenance, and is then EOL.
+Because the monthly cadence is fixed, each minor release spends roughly
+one month as Current, one month as Maintenance, and is then EOL.
 
 ### Fix Backporting
 
