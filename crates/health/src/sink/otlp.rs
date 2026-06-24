@@ -21,7 +21,7 @@ use prometheus::Counter;
 
 use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
-use super::{CollectorEvent, DataSink, EventContext, MetricSample};
+use super::{CollectorEvent, DataSink, EventContext, LogRecord, MetricSample};
 use crate::HealthError;
 use crate::config::OtlpSinkConfig;
 use crate::metrics::MetricsManager;
@@ -143,6 +143,38 @@ impl OtlpSink {
             include_diagnostics: config.include_diagnostics,
         })
     }
+
+    /// Enqueues a parent log and, when enabled, a bounded diagnostic log.
+    fn enqueue_log_event(&self, context: &EventContext, record: &LogRecord) {
+        let parent_key = self
+            .mapper
+            .queue_key(&context.endpoint_key, &record.attributes);
+        let parent_record = record.emitted_log_record(false).into_owned();
+        let parent_event = CollectorEvent::Log(Box::new(parent_record));
+
+        if self
+            .queue
+            .save_latest(parent_key, (context.clone(), parent_event))
+        {
+            self.replaced_total.inc();
+        }
+
+        if !self.include_diagnostics || record.diagnostic_record.is_none() {
+            return;
+        }
+
+        // Keep diagnostics on the same latest-wins queue policy as other logs.
+        // This bounds memory if OTLP export slows down.
+        let diagnostic_key = format!("{}|diagnostic", context.endpoint_key);
+        let diagnostic_record = record.emitted_log_record(true).into_owned();
+        let diagnostic_event = CollectorEvent::Log(Box::new(diagnostic_record));
+        if self
+            .queue
+            .save_latest(diagnostic_key, (context.clone(), diagnostic_event))
+        {
+            self.replaced_total.inc();
+        }
+    }
 }
 
 #[cfg(any(test, feature = "bench-hooks"))]
@@ -201,17 +233,10 @@ impl DataSink for OtlpSink {
             return;
         }
 
-        let (key, event, count_replacements) = match event {
+        let (key, event) = match event {
             CollectorEvent::Log(record) => {
-                let key = self
-                    .mapper
-                    .queue_key(&context.endpoint_key, &record.attributes);
-
-                let log_record = record
-                    .emitted_log_record(self.include_diagnostics)
-                    .into_owned();
-
-                (key, CollectorEvent::Log(Box::new(log_record)), true)
+                self.enqueue_log_event(context, record);
+                return;
             }
             CollectorEvent::HealthReport(report) => {
                 let key = format!(
@@ -220,16 +245,16 @@ impl DataSink for OtlpSink {
                     report.source.as_str()
                 );
 
-                (key, event.clone(), true)
+                (key, event.clone())
             }
             CollectorEvent::Firmware(info) => {
                 let key = format!("{}|firmware|{}", context.endpoint_key, info.component);
-                (key, event.clone(), true)
+                (key, event.clone())
             }
             _ => return,
         };
 
-        if self.queue.save_latest(key, (context.clone(), event)) && count_replacements {
+        if self.queue.save_latest(key, (context.clone(), event)) {
             self.replaced_total.inc();
         }
     }
@@ -507,9 +532,9 @@ mod tests {
         assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
-    /// Verifies diagnostic log bodies still use parent-event deduplication.
+    /// Verifies diagnostic log bodies use bounded latest-wins deduplication.
     #[test]
-    fn diagnostic_log_record_deduplicates_parent_events_with_payload_body() {
+    fn diagnostic_log_records_deduplicate_by_endpoint() {
         let sink = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);
         let ctx = test_context();
 
@@ -530,22 +555,21 @@ mod tests {
             ),
         );
 
-        let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() else {
-            panic!("expected queued diagnostic log");
-        };
+        let mut records = Vec::new();
+        while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
+            records.push(record);
+        }
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].body, "test");
 
         let body: serde_json::Value =
-            serde_json::from_str(&record.body).expect("valid diagnostic body");
-        let message = body["message"].as_str().map(str::to_string);
-        let diagnostic_data = body["diagnostic_data"].as_str().map(str::to_string);
-
-        assert!(sink.queue.pop().is_none());
-        assert_eq!(message, Some("test".to_string()));
-        assert_eq!(diagnostic_data, Some("payload-b".to_string()));
-        assert_eq!(sink.replaced_total.get() as u64, 1);
+            serde_json::from_str(&records[1].body).expect("valid diagnostic body");
+        assert_eq!(body["diagnostic_data"].as_str(), Some("payload-b"));
+        assert_eq!(sink.replaced_total.get() as u64, 2);
 
         assert!(
-            record
+            records[0]
                 .attributes
                 .iter()
                 .all(|(key, _)| key.as_ref() != "redfish.diagnostic_data")

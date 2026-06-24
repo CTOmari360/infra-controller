@@ -260,9 +260,9 @@ impl LogRecord {
 
 /// Diagnostic payload attached to a primary log record.
 ///
-/// The payload body stays opaque. Sinks that opt in encode the parent message
-/// and diagnostic payload together in the parent log body, while retaining
-/// Redfish metadata as attributes for filtering and correlation.
+/// The payload body stays opaque. Sinks that opt in fold the parent message and
+/// diagnostic payload into emitted log bodies, while retaining Redfish metadata
+/// as attributes for filtering and correlation.
 #[derive(Clone, Debug)]
 pub struct DiagnosticLogRecord {
     pub body: String,

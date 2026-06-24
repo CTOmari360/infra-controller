@@ -334,8 +334,8 @@ pub struct OtlpSinkConfig {
     ///
     /// Disabled by default because payload bodies are opaque and may be large or
     /// sensitive. If no diagnostic-capable sink enables diagnostics, collectors
-    /// do not attach diagnostic fields. Diagnostic fields are emitted with
-    /// their parent log record and use the same latest-wins queue replacement.
+    /// do not attach diagnostic fields. OTLP exports parent logs normally and
+    /// emits diagnostics as a separate bounded latest-wins log per endpoint.
     pub include_diagnostics: bool,
 }
 
