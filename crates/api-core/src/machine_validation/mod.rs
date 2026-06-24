@@ -36,8 +36,9 @@ use tokio_util::sync::CancellationToken;
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 
-// The Scout heartbeat interval is 30 seconds. Keep heartbeat-based stale reconciliation above that
-// cadence so a low configured stale timeout does not fail healthy active runs between heartbeats.
+// The Scout heartbeat interval is 30 seconds. Keep heartbeat-based stale reconciliation above three
+// missed beats so a low configured stale timeout does not fail healthy active runs between
+// heartbeats.
 const MIN_HEARTBEAT_STALE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
 pub struct MachineValidationManager {
@@ -496,5 +497,21 @@ mod tests {
         );
 
         assert_eq!(stale.len(), 1);
+    }
+
+    #[test]
+    fn stale_validations_clamps_heartbeat_timeout_above_scout_cadence() {
+        let now = chrono::Utc::now();
+        let mut active = validation_started_at(now - chrono::Duration::seconds(30), 0);
+        active.last_heartbeat_at = Some(now - chrono::Duration::seconds(30));
+
+        let stale = stale_validations(
+            vec![active],
+            std::time::Duration::from_secs(1),
+            heartbeat_stale_timeout(std::time::Duration::from_secs(1)),
+            now,
+        );
+
+        assert!(stale.is_empty());
     }
 }
