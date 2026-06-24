@@ -97,6 +97,7 @@ fn map_payload<B: Bmc>(
     }
 }
 
+/// Converts one Redfish SSE event into collector log events.
 fn event_to_logs<B: Bmc>(
     event: &Event,
     bmc: &B,

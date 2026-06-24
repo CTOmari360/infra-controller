@@ -23,6 +23,7 @@ pub struct TracingSink {
 }
 
 impl TracingSink {
+    /// Builds a tracing sink from configuration.
     pub fn new(config: &TracingSinkConfig) -> Self {
         Self {
             include_diagnostics: config.include_diagnostics,

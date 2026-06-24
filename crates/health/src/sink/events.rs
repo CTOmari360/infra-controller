@@ -209,6 +209,7 @@ impl LogRecord {
             return Cow::Borrowed(self);
         };
 
+        /// Serializes parent and diagnostic fields into an emitted log body.
         fn diagnostic_body(
             message: &str,
             diagnostic_record: &DiagnosticLogRecord,

@@ -545,6 +545,7 @@ mod tests {
         assert_eq!(records[0].severity_number, SeverityNumber::Warn as i32);
     }
 
+    /// Verifies OTLP conversion preserves an already-emitted diagnostic log.
     #[test]
     fn diagnostic_log_event_preserves_diagnostic_body_and_attributes() {
         let ctx = test_context();

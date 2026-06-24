@@ -92,6 +92,7 @@ struct JsonLogRecord<'a> {
 }
 
 impl<'a> JsonLogRecord<'a> {
+    /// Builds the JSONL representation for one emitted log record.
     fn from_log_record(context: &'a EventContext, record: &'a LogRecord) -> Self {
         Self {
             endpoint: context.endpoint_key(),
@@ -298,6 +299,7 @@ mod tests {
         assert_eq!(parsed["endpoint"], "aa:bb:cc:dd:ee:ff");
     }
 
+    /// Verifies log files embed diagnostics in the parent log body when enabled.
     #[test]
     fn test_writes_diagnostic_fields_in_parent_log_body() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -347,6 +349,7 @@ mod tests {
         assert_eq!(parsed["attributes"][1][1], "CPER");
     }
 
+    /// Verifies log files omit diagnostic payloads by default.
     #[test]
     fn test_skips_diagnostic_log_record_by_default() {
         let dir = tempfile::tempdir().expect("tempdir");

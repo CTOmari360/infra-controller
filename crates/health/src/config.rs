@@ -1590,6 +1590,7 @@ username = "root"
         assert!(config.validate().is_ok());
     }
 
+    /// Verifies each diagnostic-capable sink parses the opt-in flag.
     #[test]
     fn test_sink_include_diagnostics_configs_parse() {
         let tracing: TracingSinkConfig = Figment::new()
@@ -1613,6 +1614,7 @@ username = "root"
         assert!(!OtlpSinkConfig::default().include_diagnostics);
     }
 
+    /// Verifies collectors attach diagnostics only when a capable sink opts in.
     #[test]
     fn test_sinks_config_includes_log_diagnostics() {
         let cases = [

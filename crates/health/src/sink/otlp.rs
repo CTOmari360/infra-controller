@@ -151,6 +151,7 @@ impl OtlpSink {
         Self::new_for_bench_with_diagnostics(mapper, false)
     }
 
+    /// Builds a bench sink with diagnostic emission explicitly configured.
     fn new_for_bench_with_diagnostics(
         mapper: Arc<dyn RedfishEventMapper>,
         include_diagnostics: bool,
@@ -263,6 +264,7 @@ mod tests {
         log_event_with_diagnostic_record(message_id, message_args, None)
     }
 
+    /// Builds a log event with an optional diagnostic carrier.
     fn log_event_with_diagnostic_record(
         message_id: &str,
         message_args: &str,
@@ -279,6 +281,7 @@ mod tests {
         }))
     }
 
+    /// Builds a diagnostic carrier with stable parent metadata.
     fn diagnostic_log_record(body: &str) -> DiagnosticLogRecord {
         DiagnosticLogRecord {
             body: body.to_string(),
@@ -480,6 +483,7 @@ mod tests {
         assert_eq!(count, 1, "same sensor should dedup to one entry");
     }
 
+    /// Verifies OTLP logs omit diagnostic payloads by default.
     #[test]
     fn diagnostic_log_record_is_skipped_by_default() {
         let sink = test_sink();
@@ -503,6 +507,7 @@ mod tests {
         assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
+    /// Verifies diagnostic log bodies still use parent-event deduplication.
     #[test]
     fn diagnostic_log_record_deduplicates_parent_events_with_payload_body() {
         let sink = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);

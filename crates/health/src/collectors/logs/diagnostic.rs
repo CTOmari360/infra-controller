@@ -139,6 +139,9 @@ pub(crate) fn make_diagnostic_record(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::scenarios;
+
     use super::*;
 
     #[derive(Serialize)]
@@ -147,75 +150,142 @@ mod tests {
         CperSection,
     }
 
-    fn attr_value<'a>(record: &'a DiagnosticLogRecord, key: &str) -> Option<&'a str> {
-        record
-            .attributes
-            .iter()
-            .find(|(k, _)| k.as_ref() == key)
-            .map(|(_, v)| v.as_str())
+    enum DiagnosticInput {
+        EnumWireSpelling,
+        Record(DiagnosticRecordInput),
     }
 
-    #[test]
-    fn redfish_enum_string_uses_serde_wire_spelling() {
-        assert_eq!(
-            redfish_enum_string(&TestDiagnosticDataType::CperSection),
-            Some("CPERSection".to_string())
-        );
+    struct DiagnosticRecordInput {
+        diagnostic_data: Option<&'static str>,
+        diagnostic_data_type: Option<String>,
+        oem_diagnostic_data_type: Option<&'static str>,
+        additional_data_uri: Option<&'static str>,
+        additional_data_size_bytes: Option<i64>,
+        message_id: Option<&'static str>,
+        event_id: Option<&'static str>,
+        log_entry_id: Option<&'static str>,
     }
 
-    #[test]
-    fn diagnostic_payload_fields_preserve_opaque_payload() {
-        let Some(record) = make_diagnostic_record(DiagnosticPayload {
-            diagnostic_data: Some("base64-payload"),
-            diagnostic_data_type: Some("CPER".to_string()),
+    #[derive(Debug, PartialEq)]
+    enum DiagnosticOutput {
+        EnumWireSpelling(Option<String>),
+        Record(Option<DiagnosticRecordOutput>),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct DiagnosticRecordOutput {
+        body: String,
+        attributes: Vec<(String, String)>,
+    }
+
+    /// Runs one diagnostic helper scenario and normalizes owned output.
+    fn run_diagnostic_case(input: DiagnosticInput) -> Result<DiagnosticOutput, ()> {
+        let output = match input {
+            DiagnosticInput::EnumWireSpelling => DiagnosticOutput::EnumWireSpelling(
+                redfish_enum_string(&TestDiagnosticDataType::CperSection),
+            ),
+            DiagnosticInput::Record(input) => {
+                let record = make_diagnostic_record(DiagnosticPayload {
+                    diagnostic_data: input.diagnostic_data,
+                    diagnostic_data_type: input.diagnostic_data_type,
+                    oem_diagnostic_data_type: input.oem_diagnostic_data_type,
+                    additional_data_uri: input.additional_data_uri,
+                    additional_data_size_bytes: input.additional_data_size_bytes,
+                    message_id: input.message_id,
+                    event_id: input.event_id,
+                    log_entry_id: input.log_entry_id,
+                })
+                .map(|record| DiagnosticRecordOutput {
+                    body: record.body,
+                    attributes: record
+                        .attributes
+                        .into_iter()
+                        .map(|(key, value)| (key.into_owned(), value))
+                        .collect(),
+                });
+
+                DiagnosticOutput::Record(record)
+            }
+        };
+
+        Ok(output)
+    }
+
+    /// Builds a complete diagnostic payload input with common parent metadata.
+    fn record_input(
+        diagnostic_data: Option<&'static str>,
+        diagnostic_data_type: Option<&'static str>,
+        additional_data_uri: Option<&'static str>,
+    ) -> DiagnosticInput {
+        DiagnosticInput::Record(DiagnosticRecordInput {
+            diagnostic_data,
+            diagnostic_data_type: diagnostic_data_type.map(str::to_string),
             oem_diagnostic_data_type: None,
-            additional_data_uri: Some("/redfish/v1/Log/1/data"),
+            additional_data_uri,
             additional_data_size_bytes: Some(2048),
             message_id: Some("ResourceEvent.1.0.ResourceErrorsDetected"),
             event_id: Some("ev-1"),
             log_entry_id: Some("42"),
-        }) else {
-            panic!("diagnostic payload should produce diagnostic fields");
-        };
-
-        assert_eq!(record.body, "base64-payload");
-
-        assert_eq!(
-            attr_value(&record, "redfish.diagnostic_data.type"),
-            Some("CPER")
-        );
-
-        assert_eq!(
-            attr_value(&record, "redfish.diagnostic_data.additional_uri"),
-            Some("/redfish/v1/Log/1/data")
-        );
-
-        assert_eq!(
-            attr_value(&record, "redfish.diagnostic_data.size_bytes"),
-            Some("2048")
-        );
-
-        assert_eq!(attr_value(&record, "redfish.parent.event_id"), Some("ev-1"));
-
-        assert_eq!(
-            attr_value(&record, "redfish.parent.log_entry_id"),
-            Some("42")
-        );
+        })
     }
 
-    #[test]
-    fn diagnostic_payload_fields_skip_absent_payload_and_uri() {
-        let event = make_diagnostic_record(DiagnosticPayload {
-            diagnostic_data: None,
-            diagnostic_data_type: Some("CPER".to_string()),
-            oem_diagnostic_data_type: None,
-            additional_data_uri: None,
-            additional_data_size_bytes: None,
-            message_id: None,
-            event_id: None,
-            log_entry_id: None,
-        });
+    /// Builds the expected record output with owned attribute strings.
+    fn expected_record(body: &str, attributes: &[(&str, &str)]) -> DiagnosticOutput {
+        DiagnosticOutput::Record(Some(DiagnosticRecordOutput {
+            body: body.to_string(),
+            attributes: attributes
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        }))
+    }
 
-        assert!(event.is_none());
+    /// Verifies diagnostic payload conversion cases.
+    #[test]
+    fn diagnostic_payload_fields() {
+        scenarios!(run_diagnostic_case:
+            "enum wire spelling" {
+                DiagnosticInput::EnumWireSpelling => Yields(
+                    DiagnosticOutput::EnumWireSpelling(Some("CPERSection".to_string()))
+                ),
+            }
+
+            "opaque diagnostic payload" {
+                record_input(
+                    Some("base64-payload"),
+                    Some("CPER"),
+                    Some("/redfish/v1/Log/1/data"),
+                ) => Yields(expected_record(
+                    "base64-payload",
+                    &[
+                        ("redfish.diagnostic_data.type", "CPER"),
+                        (
+                            "redfish.diagnostic_data.additional_uri",
+                            "/redfish/v1/Log/1/data",
+                        ),
+                        (
+                            "redfish.parent.message_id",
+                            "ResourceEvent.1.0.ResourceErrorsDetected",
+                        ),
+                        ("redfish.parent.event_id", "ev-1"),
+                        ("redfish.parent.log_entry_id", "42"),
+                        ("redfish.diagnostic_data.size_bytes", "2048"),
+                    ],
+                )),
+            }
+
+            "absent payload and uri" {
+                DiagnosticInput::Record(DiagnosticRecordInput {
+                    diagnostic_data: None,
+                    diagnostic_data_type: Some("CPER".to_string()),
+                    oem_diagnostic_data_type: None,
+                    additional_data_uri: None,
+                    additional_data_size_bytes: None,
+                    message_id: None,
+                    event_id: None,
+                    log_entry_id: None,
+                }) => Yields(DiagnosticOutput::Record(None)),
+            }
+        );
     }
 }
