@@ -83,10 +83,17 @@ type HostLifecycleProfile struct {
 	DisableLockdown *bool `json:"disable_lockdown,omitempty"`
 }
 
+// HasSetFields reports whether the profile carries at least one explicitly set
+// field. Keep this method in sync when adding fields to HostLifecycleProfile so
+// update paths do not mistake an empty patch object for a requested write.
+func (h HostLifecycleProfile) HasSetFields() bool {
+	return h.DisableLockdown != nil
+}
+
 // ToProto returns the workflow proto for this profile, or nil when no setting
 // is present so the outer field stays unset and Core preserves its DB value.
 func (h HostLifecycleProfile) ToProto() *cwssaws.HostLifecycleProfile {
-	if h.DisableLockdown == nil {
+	if !h.HasSetFields() {
 		return nil
 	}
 	return &cwssaws.HostLifecycleProfile{DisableLockdown: h.DisableLockdown}
@@ -709,8 +716,9 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		// columnsSet. The bulk UPDATE applies one column list to every row, so
 		// folding it in would write the column for rows that omitted it (their
 		// model carries the zero value here), silently clearing the persisted
-		// profile. Omitting the field must preserve the existing value, so it is
-		// applied separately to only the rows that set it.
+		// profile. Apply it separately only to rows that included the field and
+		// merge the JSONB patch below so empty or partial profiles preserve
+		// existing stored values.
 		if input.HostLifecycleProfile != nil {
 			hlpUpdates = append(hlpUpdates, &ExpectedMachine{
 				ID:                   input.ExpectedMachineID,
@@ -746,13 +754,14 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 	}
 
 	// Apply host_lifecycle_profile only to the rows that provided it. Rows that
-	// omitted it are absent here and keep their persisted value. The `updated`
-	// column is already touched for every row by the bulk update above.
-	if len(hlpUpdates) > 0 {
+	// omitted it are absent here and keep their persisted value. Merge the JSONB
+	// patch like Site config updates so an empty object is a no-op and future
+	// profile fields can be updated independently.
+	for _, em := range hlpUpdates {
 		_, err = db.GetIDB(tx, emsd.dbSession).NewUpdate().
-			Model(&hlpUpdates).
-			Column("host_lifecycle_profile").
-			Bulk().
+			Model((*ExpectedMachine)(nil)).
+			Set("host_lifecycle_profile = host_lifecycle_profile || ?::jsonb", em.HostLifecycleProfile).
+			Where("id = ?", em.ID).
 			Exec(ctx)
 		if err != nil {
 			return nil, err

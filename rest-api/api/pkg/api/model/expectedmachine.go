@@ -41,10 +41,13 @@ func (p *APIHostLifecycleProfile) ToDBModel() cdbm.HostLifecycleProfile {
 // ToDBModelPtr converts the API profile into a DB model pointer, returning nil
 // when the update request did not set a meaningful field.
 func (p *APIHostLifecycleProfile) ToDBModelPtr() *cdbm.HostLifecycleProfile {
-	if p == nil || p.DisableLockdown == nil {
+	if p == nil {
 		return nil
 	}
 	v := p.ToDBModel()
+	if !v.HasSetFields() {
+		return nil
+	}
 	return &v
 }
 

@@ -181,6 +181,10 @@ verification expectations.
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever API
   endpoints are added or modified.
+- When adding a request/response field to a resource that has both single-item
+  and batch endpoints, update the full surface together: single create/update
+  DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
+  OpenAPI, SDK, and tests. Do not stop after the single handler path.
 - PUT endpoints that create or replace a resource should use
   `CreateOrUpdate` naming consistently across handlers, summaries,
   operation IDs, and generated SDK methods.
@@ -549,9 +553,11 @@ batch.
 When adding such a field to a bulk-update DAO:
 
 - Do **not** add it to the shared `columnsSet`.
-- Apply it in a separate bulk `UPDATE` scoped to only the rows that provided it
-  (carry per-row presence through the SQL shape), or split the batch by
-  identical column set.
+- Apply it only to rows that provided it (carry per-row presence through the SQL
+  shape), or split the batch by identical column set. For flat JSONB
+  patch-style structs, prefer the Site config pattern:
+  `column = column || ?::jsonb`; an empty object is a no-op and future fields
+  can be partial-patched without replacing the whole stored object.
 - Keep create vs. update straight: on create, an omitted optional field is
   stored as its zero/empty value; on update, an omitted field must be left
   untouched.

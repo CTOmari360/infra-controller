@@ -1659,7 +1659,8 @@ func TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile(t *testing.T)
 
 	emsd := NewExpectedMachineDAO(dbSession)
 
-	// emA starts with disable_lockdown=true and is updated WITHOUT a profile.
+	// emA starts with disable_lockdown=true and is updated with an empty profile
+	// object. That must behave like omission and preserve the stored value.
 	emA, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
 		ExpectedMachineID:    uuid.New(),
 		SiteID:               site.ID,
@@ -1694,8 +1695,9 @@ func TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile(t *testing.T)
 
 	_, err = emsd.UpdateMultiple(ctx, nil, []ExpectedMachineUpdateInput{
 		{
-			ExpectedMachineID:   emA.ID,
-			ChassisSerialNumber: cutil.GetPtr("CHASSIS-HLP-A2"),
+			ExpectedMachineID:    emA.ID,
+			ChassisSerialNumber:  cutil.GetPtr("CHASSIS-HLP-A2"),
+			HostLifecycleProfile: &HostLifecycleProfile{},
 		},
 		{
 			ExpectedMachineID:    emB.ID,
@@ -1708,7 +1710,7 @@ func TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile(t *testing.T)
 	})
 	assert.NoError(t, err)
 
-	// emA: other field changed, profile preserved (still true).
+	// emA: other field changed, empty profile object preserved the stored value.
 	gotA, err := emsd.Get(ctx, nil, emA.ID, nil, false)
 	assert.NoError(t, err)
 	assert.Equal(t, "CHASSIS-HLP-A2", gotA.ChassisSerialNumber)
