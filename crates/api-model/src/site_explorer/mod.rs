@@ -2257,7 +2257,9 @@ mod tests {
 
         assert!(mitigation.contains("DGX H100"));
         assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
-        assert!(mitigation.contains("docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html"));
+        assert!(
+            mitigation.contains("docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html")
+        );
     }
 
     /// `find_version` locates the firmware version matching a component regex,
