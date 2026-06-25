@@ -1,9 +1,9 @@
 name: Stale Issues and PRs
 
 on:
-  schedule:
-    - cron: "0 6 * * *"  # Daily at 6am UTC
   workflow_dispatch: {}
+
+# Disabled: schedule removed to stop automatic stale close behavior
 
 permissions:
   contents: read
