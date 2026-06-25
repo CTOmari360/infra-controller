@@ -19,3 +19,10 @@ tests:
       - matchRegex:
           path: data["kea_config.json"]
           pattern: 'https://carbide-api\.nico-system\.svc\.cluster\.local'
+  - it: preserves an explicit zero decline probation period
+    set:
+      config.kea.declineProbationPeriod: 0
+    asserts:
+      - matchRegex:
+          path: data["kea_config.json"]
+          pattern: '"decline-probation-period": 0'
