@@ -12,8 +12,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/bmc"
 
@@ -29,6 +32,22 @@ type RedfishClient struct {
 	gofish.ClientConfig
 }
 
+// buildEndpoint constructs the Redfish HTTPS endpoint URL for a BMC at the given
+// IP and port. IPv6 literals are bracketed so the resulting URL has a valid
+// authority component (e.g. https://[2001:db8::1]:8443).
+func buildEndpoint(ip net.IP, port int) string {
+	host := ip.String()
+	if port == bmc.DefaultBMCPort {
+		// No explicit port; bracket IPv6 literals (those contain a ':') ourselves.
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		return fmt.Sprintf("https://%s", host)
+	}
+	// net.JoinHostPort brackets IPv6 hosts and leaves IPv4/hostnames untouched.
+	return fmt.Sprintf("https://%s", net.JoinHostPort(host, strconv.Itoa(port)))
+}
+
 // New creates a RedfishClient for the given BMC and context.
 func New(ctx context.Context, b *bmc.BMC, reuse_connections bool) (*RedfishClient, error) {
 	if b == nil {
@@ -38,14 +57,8 @@ func New(ctx context.Context, b *bmc.BMC, reuse_connections bool) (*RedfishClien
 		return nil, fmt.Errorf("BMC credentials not set")
 	}
 
-	// Build endpoint with custom port if specified
-	port := b.GetPort()
-	var endpoint string
-	if port == 443 {
-		endpoint = fmt.Sprintf("https://%s", b.IP.String())
-	} else {
-		endpoint = fmt.Sprintf("https://%s:%d", b.IP.String(), port)
-	}
+	// Build the Redfish endpoint, bracketing IPv6 literals for a valid URL authority.
+	endpoint := buildEndpoint(b.IP, b.GetPort())
 
 	client_config := gofish.ClientConfig{
 		Endpoint:         endpoint,
