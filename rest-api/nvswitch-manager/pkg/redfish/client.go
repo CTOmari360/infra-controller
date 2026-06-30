@@ -14,9 +14,9 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/bmc"
 
@@ -33,19 +33,13 @@ type RedfishClient struct {
 }
 
 // buildEndpoint constructs the Redfish HTTPS endpoint URL for a BMC at the given
-// IP and port. IPv6 literals are bracketed so the resulting URL has a valid
-// authority component (e.g. https://[2001:db8::1]:8443).
+// IP and port. net.JoinHostPort brackets IPv6 literals so the resulting URL has
+// a valid authority component (e.g. https://[2001:db8::1]:8443).
 func buildEndpoint(ip net.IP, port int) string {
-	host := ip.String()
-	if port == bmc.DefaultBMCPort {
-		// No explicit port; bracket IPv6 literals (those contain a ':') ourselves.
-		if strings.Contains(host, ":") {
-			host = "[" + host + "]"
-		}
-		return fmt.Sprintf("https://%s", host)
-	}
-	// net.JoinHostPort brackets IPv6 hosts and leaves IPv4/hostnames untouched.
-	return fmt.Sprintf("https://%s", net.JoinHostPort(host, strconv.Itoa(port)))
+	return (&url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(ip.String(), strconv.Itoa(port)),
+	}).String()
 }
 
 // New creates a RedfishClient for the given BMC and context.

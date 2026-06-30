@@ -15,9 +15,9 @@ func TestBuildEndpoint(t *testing.T) {
 		port int
 		want string
 	}{
-		{"ipv4 default port", "192.0.2.10", 443, "https://192.0.2.10"},
+		{"ipv4 default port", "192.0.2.10", 443, "https://192.0.2.10:443"},
 		{"ipv4 custom port", "192.0.2.10", 8443, "https://192.0.2.10:8443"},
-		{"ipv6 default port", "2001:db8::1", 443, "https://[2001:db8::1]"},
+		{"ipv6 default port", "2001:db8::1", 443, "https://[2001:db8::1]:443"},
 		{"ipv6 custom port", "2001:db8::1", 8443, "https://[2001:db8::1]:8443"},
 	}
 	for _, tc := range cases {
