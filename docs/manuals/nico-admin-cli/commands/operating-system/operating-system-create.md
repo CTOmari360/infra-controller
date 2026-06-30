@@ -48,7 +48,13 @@ Whether this OS definition is active (default: true).\
 Allow users to override OS parameters.
 
 **--phone-home-enabled**  
-Enable phone-home on first boot.
+Hold the instance in a provisioning state until the booted OS calls back
+("phones home") to NICo's metadata service, instead of reporting it ready as
+soon as provisioning finishes. NICo does not inject anything into your
+user-data -- the OS must include a cloud-init `phone_home` module to make the
+callback. See
+[Phone-home](../../../../configuration/tenant_management.md#phone-home) for
+what it injects, the endpoint, and usage guidance.
 
 **--user-data** *\<USER_DATA\>*  
 Optional cloud-init / user-data script.
